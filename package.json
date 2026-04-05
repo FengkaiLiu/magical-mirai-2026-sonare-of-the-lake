@@ -1,0 +1,17 @@
+{
+  "name": "magical-mirai-2026-procon",
+  "version": "1.0.0",
+  "description": "Hatsune Miku Magical Mirai 2026 Programming Contest Entry",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "textalive-app-api": "^0.4.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.1"
+  }
+}
