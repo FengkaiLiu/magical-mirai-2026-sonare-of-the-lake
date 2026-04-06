@@ -42,7 +42,7 @@ const timeDisplay = document.getElementById("time-display");
 const player = new Player({
   app: {
     // TODO: 替换为你自己的 TextAlive App token
-    token: "xTTinPuYYoHYLhnk",
+    token: "YOUR_TOKEN_HERE",
   },
   mediaElement: document.createElement("audio"),
 });
@@ -59,9 +59,21 @@ player.addListener({
   onAppReady: (app) => {
     console.log("[TextAlive] App is ready:", app);
 
-    // 加载指定歌曲 (默认: Answer Me - 大奖歌曲)
-    // TODO: 根据你的选择更换歌曲 URL
-    player.createFromSongUrl("https://piapro.jp/t/6W2N");
+    if (!app.managed) {
+      // こたえて (Answer Me) / imie — 大奖歌曲
+      // URL 必须包含版本号，并指定音乐地图参数
+      player.createFromSongUrl("https://piapro.jp/t/6W2N/20251215164617", {
+        video: {
+          // 音楽地図訂正履歴 (音乐地图版本固定)
+          beatId: 4827293,
+          chordId: 2963754,
+          repetitiveSegmentId: 3086261,
+          // 歌詞タイミング訂正履歴
+          lyricId: 126519,
+          lyricDiffId: 28645,
+        },
+      });
+    }
   },
 
   /**
@@ -134,6 +146,10 @@ player.addListener({
 // ==========================================
 
 playBtn.addEventListener("click", () => {
+  if (!player.video) {
+    console.log("[Info] Video not ready yet");
+    return;
+  }
   if (player.isPlaying) {
     player.requestPause();
   } else {
