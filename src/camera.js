@@ -1,0 +1,65 @@
+/**
+ * ==========================================
+ * CameraController — スムーズ俯瞰追従
+ * ==========================================
+ * 固定角度で船を追いかける。急に動かず、ゆったりlerp。
+ */
+
+import * as THREE from "three";
+
+export class CameraController {
+  constructor(engine) {
+    this.camera = engine.camera;
+
+    // カメラの設定
+    this.height = 14;     // 船からの高さ
+    this.distance = 16;   // 船からの後方距離
+    this.lookAhead = 3;   // 注視点を船の前方にずらす量
+
+    // スムーズ追従
+    this.currentPos = new THREE.Vector3(0, this.height, this.distance);
+    this.currentLook = new THREE.Vector3(0, 0, 0);
+    this.lerpSpeed = 0.03; // 小さい = ゆったり
+
+    // 初期位置
+    this.camera.position.copy(this.currentPos);
+    this.camera.lookAt(0, 0, 0);
+
+    engine.addUpdatable(this);
+  }
+
+  setTarget(boatPosition) {
+    this.targetPos = boatPosition;
+  }
+
+  update(dt, elapsed) {
+    if (!this.targetPos) return;
+
+    // 目標カメラ位置: 船の後方上空 (角度固定)
+    const goalPos = new THREE.Vector3(
+      this.targetPos.x,
+      this.targetPos.y + this.height,
+      this.targetPos.z + this.distance
+    );
+
+    // 目標注視点: 船の少し前方
+    const goalLook = new THREE.Vector3(
+      this.targetPos.x,
+      0,
+      this.targetPos.z - this.lookAhead
+    );
+
+    // スムーズ補間
+    this.currentPos.lerp(goalPos, this.lerpSpeed);
+    this.currentLook.lerp(goalLook, this.lerpSpeed);
+
+    // 微揺れ
+    this.camera.position.set(
+      this.currentPos.x + Math.sin(elapsed * 0.08) * 0.04,
+      this.currentPos.y + Math.sin(elapsed * 0.11) * 0.03,
+      this.currentPos.z
+    );
+
+    this.camera.lookAt(this.currentLook);
+  }
+}
