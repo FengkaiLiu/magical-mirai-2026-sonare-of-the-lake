@@ -19,7 +19,7 @@ export class CameraController {
     // スムーズ追従
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);
     this.currentLook = new THREE.Vector3(0, 0, 0);
-    this.lerpSpeed = 0.03; // 小さい = ゆったり
+    this.smoothing = 0.03; // 小さい = ゆったり (フレームレート非依存)
 
     // 初期位置
     this.camera.position.copy(this.currentPos);
@@ -49,9 +49,11 @@ export class CameraController {
       this.targetPos.z - this.lookAhead
     );
 
-    // スムーズ補間
-    this.currentPos.lerp(goalPos, this.lerpSpeed);
-    this.currentLook.lerp(goalLook, this.lerpSpeed);
+    // フレームレート非依存のスムーズ補間
+    // 60fps でも 30fps でも同じ速度で追従する
+    const alpha = 1 - Math.pow(1 - this.smoothing, dt * 60);
+    this.currentPos.lerp(goalPos, alpha);
+    this.currentLook.lerp(goalLook, alpha);
 
     // 微揺れ
     this.camera.position.set(

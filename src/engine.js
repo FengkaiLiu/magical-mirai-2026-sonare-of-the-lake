@@ -33,6 +33,37 @@ export class Engine {
     this.world.broadphase = new CANNON.SAPBroadphase(this.world);
     this.world.allowSleep = true;
 
+    // === Physics Materials ===
+    this.materials = {
+      boat:  new CANNON.Material("boat"),
+      lyric: new CANNON.Material("lyric"),
+      water: new CANNON.Material("water"),
+    };
+
+    // 船 vs 歌詞: 高弾性（弾き飛ばす）、低摩擦（滑る）
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.materials.boat, this.materials.lyric,
+      { friction: 0.1, restitution: 0.7 }
+    ));
+
+    // 歌詞 vs 水面: 高摩擦（着水後すぐ止まる）、低弾性
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.materials.lyric, this.materials.water,
+      { friction: 0.8, restitution: 0.15 }
+    ));
+
+    // 船 vs 水面: 中摩擦（水上を滑る感じ）
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.materials.boat, this.materials.water,
+      { friction: 0.3, restitution: 0.05 }
+    ));
+
+    // 歌詞 vs 歌詞: 軽い弾性
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.materials.lyric, this.materials.lyric,
+      { friction: 0.2, restitution: 0.4 }
+    ));
+
     // Physics timestep
     this.fixedTimeStep = 1 / 60;
     this.maxSubSteps = 3;

@@ -9,6 +9,7 @@ import { Player } from "textalive-app-api";
 import { Engine } from "./engine.js";
 import { Water } from "./water.js";
 import { Boat } from "./boat.js";
+import { Controls } from "./controls.js";
 import { CameraController } from "./camera.js";
 import { Environment } from "./environment.js";
 import { LyricManager } from "./lyric-manager.js";
@@ -39,9 +40,9 @@ water.setColors(song.theme.water, song.theme.deep);
 const env = new Environment(engine);
 env.setTheme(song.theme);
 
-const boat = new Boat(engine);
+const boat = new Boat(engine, new Controls());
 const cam = new CameraController(engine);
-const lyrics = new LyricManager(engine);
+const lyrics = new LyricManager(engine, boat);
 
 // Debug用グローバル参照
 window._boat = boat;
@@ -51,7 +52,6 @@ window._engine = engine;
 engine.addUpdatable({
   update() {
     cam.setTarget(boat.getPosition());
-    lyrics.cleanup();
   }
 });
 
@@ -78,7 +78,7 @@ player.addListener({
     if (timeTxt) timeTxt.textContent = `${fmt(pos)} / ${fmt(player.video?.duration||0)}`;
 
     const phrase = player.video.findPhrase(pos);
-    if (phrase) lyrics.addPhrase(phrase.text, boat.getPosition());
+    if (phrase) lyrics.addPhrase(phrase.text);
 
     lastPos = pos;
   },

@@ -83,6 +83,7 @@ export class Water {
     this.body = new CANNON.Body({
       type: CANNON.Body.STATIC,
       shape: new CANNON.Plane(),
+      material: engine.materials.water,
     });
     this.body.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
     engine.world.addBody(this.body);

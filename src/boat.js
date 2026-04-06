@@ -2,8 +2,8 @@
  * ==========================================
  * Boat — Cannon-es 物理ボート
  * ==========================================
- * WASD/矢印キーで操作。
- * Cannon-es Body で力を加えて動かす（速度直接設定ではない）。
+ * Controls の actions を読んで動く。
+ * キーボード入力は Controls が管理。
  * Three.js の Mesh は物理ボディに同期。
  */
 
@@ -11,18 +11,19 @@ import * as THREE from "three";
 import * as CANNON from "cannon-es";
 
 export class Boat {
-  constructor(engine) {
+  constructor(engine, controls) {
     this.engine = engine;
+    this.controls = controls;
 
     // === Cannon-es physics body ===
-    // 箱型の衝突形状
     const shape = new CANNON.Box(new CANNON.Vec3(0.3, 0.12, 0.6));
     this.body = new CANNON.Body({
       mass: 5,
       position: new CANNON.Vec3(0, 0.3, 0),
-      linearDamping: 0.6,   // 水の抵抗
-      angularDamping: 0.85, // 回転抵抗
-      allowSleep: false,     // 船は常にアクティブ
+      material: engine.materials.boat,
+      linearDamping: 0.6,
+      angularDamping: 0.85,
+      allowSleep: false,
     });
     this.body.addShape(shape);
 
@@ -78,27 +79,19 @@ export class Boat {
 
     engine.scene.add(this.mesh);
 
-    // === Controls ===
+    // === Movement params ===
     this.forwardForce = 25;
     this.turnTorque = 5;
-    this.keys = { w: false, s: false, a: false, d: false };
-
-    window.addEventListener("keydown", e => this.setKey(e.code, true));
-    window.addEventListener("keyup",   e => this.setKey(e.code, false));
 
     engine.addUpdatable(this);
-  }
-
-  setKey(code, val) {
-    const m = { KeyW:"w", ArrowUp:"w", KeyS:"s", ArrowDown:"s",
-                KeyA:"a", ArrowLeft:"a", KeyD:"d", ArrowRight:"d" };
-    if (m[code]) this.keys[m[code]] = val;
   }
 
   /**
    * preStep — 物理演算前: 入力を読んで速度を設定
    */
   preStep(dt, elapsed) {
+    const actions = this.controls.actions;
+
     // 船の向き (quaternion → forward vector)
     const quat = this.body.quaternion;
     const forward = new CANNON.Vec3(0, 0, -1);
@@ -109,24 +102,23 @@ export class Boat {
     // === 速度操作 ===
     const vel = this.body.velocity;
 
-    if (this.keys.w) {
+    if (actions.forward) {
       vel.x += forward.x * this.forwardForce * dt;
       vel.z += forward.z * this.forwardForce * dt;
     }
-    if (this.keys.s) {
+    if (actions.backward) {
       vel.x -= forward.x * this.forwardForce * 0.3 * dt;
       vel.z -= forward.z * this.forwardForce * 0.3 * dt;
     }
 
-    // 旋回
-    if (this.keys.a) {
+    if (actions.left) {
       this.body.angularVelocity.y += this.turnTorque * dt;
     }
-    if (this.keys.d) {
+    if (actions.right) {
       this.body.angularVelocity.y -= this.turnTorque * dt;
     }
 
-    // 水の抵抗 (速度減衰)
+    // 水の抵抗
     vel.x *= 0.98;
     vel.z *= 0.98;
 
@@ -139,11 +131,11 @@ export class Boat {
       vel.z *= ratio;
     }
 
-    // Y軸固定 (水面に浮かせる)
+    // Y軸固定
     this.body.position.y = 0.25;
     vel.y = 0;
 
-    // Y軸以外の回転を抑制 (転覆防止)
+    // 転覆防止
     this.body.angularVelocity.x *= 0.9;
     this.body.angularVelocity.z *= 0.9;
   }
@@ -159,21 +151,19 @@ export class Boat {
     p.x = Math.max(-40, Math.min(40, p.x));
     p.z = Math.max(-40, Math.min(40, p.z));
 
-    // === Three.js mesh を物理ボディに同期 ===
+    // Three.js mesh を物理ボディに同期
     this.mesh.position.set(p.x, p.y, p.z);
     this.mesh.quaternion.set(quat.x, quat.y, quat.z, quat.w);
 
-    // 微かなボブ (波の上の揺れ)
+    // 微かなボブ
     this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
   }
 
-  /** ワールド位置を取得 */
   getPosition() {
     const p = this.body.position;
     return new THREE.Vector3(p.x, p.y, p.z);
   }
 
-  /** 速度スカラーを取得 */
   getSpeed() {
     const v = this.body.velocity;
     return Math.sqrt(v.x * v.x + v.z * v.z);
