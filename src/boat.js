@@ -95,7 +95,10 @@ export class Boat {
     if (m[code]) this.keys[m[code]] = val;
   }
 
-  update(dt, elapsed) {
+  /**
+   * preStep — 物理演算前: 入力を読んで速度を設定
+   */
+  preStep(dt, elapsed) {
     // 船の向き (quaternion → forward vector)
     const quat = this.body.quaternion;
     const forward = new CANNON.Vec3(0, 0, -1);
@@ -103,9 +106,8 @@ export class Boat {
     forward.y = 0;
     forward.normalize();
 
-    // === 直接速度操作 (force方式より確実) ===
+    // === 速度操作 ===
     const vel = this.body.velocity;
-    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
 
     if (this.keys.w) {
       vel.x += forward.x * this.forwardForce * dt;
@@ -129,6 +131,7 @@ export class Boat {
     vel.z *= 0.98;
 
     // 最大速度制限
+    const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
     const maxSpeed = 8;
     if (speed > maxSpeed) {
       const ratio = maxSpeed / speed;
@@ -143,9 +146,16 @@ export class Boat {
     // Y軸以外の回転を抑制 (転覆防止)
     this.body.angularVelocity.x *= 0.9;
     this.body.angularVelocity.z *= 0.9;
+  }
+
+  /**
+   * update — 物理演算後: メッシュ同期 + 範囲制限
+   */
+  update(dt, elapsed) {
+    const p = this.body.position;
+    const quat = this.body.quaternion;
 
     // 範囲制限
-    const p = this.body.position;
     p.x = Math.max(-40, Math.min(40, p.x));
     p.z = Math.max(-40, Math.min(40, p.z));
 

@@ -53,29 +53,51 @@ export class Engine {
   }
 
   /**
-   * Register an object with update(dt, elapsed) method
+   * Register an object with an update(dt, elapsed) method.
+   * Objects may also implement:
+   *   - preStep(dt, elapsed)  — called BEFORE physics (input, forces)
+   *   - update(dt, elapsed)   — called AFTER  physics (sync mesh, post-process)
    */
   addUpdatable(obj) {
     this.updatables.push(obj);
   }
 
   /**
-   * Main game loop — call once, uses rAF internally
+   * Unregister an updatable object.
+   */
+  removeUpdatable(obj) {
+    const i = this.updatables.indexOf(obj);
+    if (i !== -1) this.updatables.splice(i, 1);
+  }
+
+  /**
+   * Main game loop — call once, uses rAF internally.
+   *
+   * Loop order (Bruno Simon style):
+   *   1. preStep  — read input, apply forces/velocity
+   *   2. physics  — cannon-es world.step()
+   *   3. update   — sync Three.js meshes to physics bodies, post-process
+   *   4. render   — three.js draw
    */
   start() {
     const tick = () => {
       const dt = this.clock.getDelta();
       this.elapsed = this.clock.getElapsedTime();
 
-      // Update all registered objects (input, forces)
+      // 1. Pre-step: input & forces (before physics solves)
+      for (const obj of this.updatables) {
+        if (obj.preStep) obj.preStep(dt, this.elapsed);
+      }
+
+      // 2. Physics step
+      this.world.step(this.fixedTimeStep, dt, this.maxSubSteps);
+
+      // 3. Post-step: sync meshes, clamp positions, etc.
       for (const obj of this.updatables) {
         obj.update(dt, this.elapsed);
       }
 
-      // Physics step (applies forces from updates)
-      this.world.step(this.fixedTimeStep, dt, this.maxSubSteps);
-
-      // Render
+      // 4. Render
       this.renderer.render(this.scene, this.camera);
 
       requestAnimationFrame(tick);

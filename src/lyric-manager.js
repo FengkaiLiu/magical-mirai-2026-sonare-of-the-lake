@@ -68,6 +68,7 @@ class LyricObject {
     this.opacity = 1;
   }
 
+  /** update — 物理演算後: メッシュ同期 + 水面クランプ */
   update(dt, elapsed) {
     const p = this.body.position;
 
@@ -116,6 +117,7 @@ class LyricObject {
   dispose() {
     this.engine.scene.remove(this.sprite);
     this.engine.world.removeBody(this.body);
+    this.engine.removeUpdatable(this);  // ← #2 fix: 从 updatables 移除
     this.sprite.material.map.dispose();
     this.sprite.material.dispose();
   }
