@@ -67,6 +67,35 @@ body {
   margin-bottom: 2rem;
 }
 
+/* --- Song Selector --- */
+#song-select {
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  cursor: pointer;
+  max-width: 90vw;
+}
+
+#song-select option {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* --- Song Info (shown during playback) --- */
+#song-info {
+  position: absolute;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
 #play-btn {
   padding: 0.8rem 2.5rem;
   font-size: 1.1rem;
