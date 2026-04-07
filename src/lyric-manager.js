@@ -27,16 +27,16 @@ function makeTextTexture(text, colorHex) {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
-  // Soft glow
-  ctx.shadowColor = hexStr;
-  ctx.shadowBlur = 14;
-
-  // White outline
+  // White outline (no glow on stroke — glow only on the colored fill)
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
   ctx.strokeStyle = "rgba(255,255,255,0.88)";
   ctx.lineWidth = 4;
   ctx.strokeText(text, 256, 64);
 
-  // Colored fill
+  // Colored fill with glow
+  ctx.shadowColor = hexStr;
+  ctx.shadowBlur = 14;
   ctx.fillStyle = hexStr;
   ctx.fillText(text, 256, 64);
 
@@ -110,6 +110,8 @@ class LyricSprite {
   }
 
   dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
     this.engine.scene.remove(this.sprite);
     this.texture.dispose();
     this.material.dispose();
@@ -117,7 +119,7 @@ class LyricSprite {
 }
 
 export class LyricManager {
-  constructor(engine, boat, colorHex) {
+  constructor(engine, boat, colorHex = 0xffffff) {
     this.engine = engine;
     this.boat = boat;
     this.colorHex = colorHex;
