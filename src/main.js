@@ -37,14 +37,12 @@ function onSongSelected(songIndex) {
 
 function startPlay(songIndex) {
   currentScene = new LakeScene(engine, songIndex);
-
-  const pauseBtn = document.getElementById("pause-btn");
-  if (pauseBtn) {
-    pauseBtn.addEventListener("click", () => {
-      if (currentScene) currentScene.togglePause();
-    });
-  }
 }
+
+// Registered once — delegates to currentScene via closure
+document.getElementById("pause-btn")?.addEventListener("click", () => {
+  if (currentScene) currentScene.togglePause();
+});
 
 startSelect();
 engine.start();
