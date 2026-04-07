@@ -111,8 +111,8 @@ export class Environment {
       // Drift at speeds matching water's uCloudOffset advancement
       this.clouds.push({
         sprite: cloud,
-        driftX: (0.4 + Math.random() * 0.4) * 8,
-        driftZ: (0.2 + Math.random() * 0.2) * 5,
+        driftX: 0.3 + Math.random() * 0.4,   // → 0.3–0.7, centered on ~0.5 world units/s
+        driftZ: 0.15 + Math.random() * 0.3,  // → 0.15–0.45, centered on ~0.3 world units/s
       });
     }
 
