@@ -1,243 +1,157 @@
 /**
- * ==========================================
- * LyricManager v5 — Wood Plank Lyrics
- * ==========================================
- * Uses BoxGeometry for rendering (reliable multi-material).
- * GLB model used only for plank dimensions.
- * Text rendered on top face via CanvasTexture.
+ * LyricManager — rising text sprite system.
+ * Each lyric phrase spawns a THREE.Sprite with CanvasTexture near the boat.
+ * Sprites rise upward, decelerate, then fade out. No physics.
  */
 
 import * as THREE from "three";
-import * as CANNON from "cannon-es";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-// ─── Lyric texture ───────────────────────────────────────
+function makeTextTexture(text, colorHex) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 128;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, 512, 128);
 
-function makeLyricTexture(text, canvasW, canvasH) {
-  const c = document.createElement("canvas");
-  c.width = canvasW;
-  c.height = canvasH;
-  const x = c.getContext("2d");
+  const hexStr = "#" + colorHex.toString(16).padStart(6, "0");
 
-  // Wood-colored background
-  x.fillStyle = "#a07848";
-  x.fillRect(0, 0, c.width, c.height);
-
-  // Simple wood grain lines
-  x.strokeStyle = "rgba(80,50,20,0.15)";
-  x.lineWidth = 2;
-  for (let i = 0; i < 6; i++) {
-    const y = c.height * (0.15 + Math.random() * 0.7);
-    x.beginPath();
-    x.moveTo(0, y);
-    x.lineTo(c.width, y + (Math.random() - 0.5) * 8);
-    x.stroke();
-  }
-
-  // Calculate font size to fit
-  const maxFont = c.height * 0.5;
-  let fontSize = maxFont;
-  const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
-  x.font = font(fontSize);
-  while (x.measureText(text).width > c.width * 0.88 && fontSize > 14) {
+  // Size text to fit canvas width
+  let fontSize = 80;
+  const fontFace = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  ctx.font = fontFace(fontSize);
+  while (ctx.measureText(text).width > 480 && fontSize > 24) {
     fontSize -= 2;
-    x.font = font(fontSize);
+    ctx.font = fontFace(fontSize);
   }
 
-  x.textAlign = "center";
-  x.textBaseline = "middle";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  // Soft glow
+  ctx.shadowColor = hexStr;
+  ctx.shadowBlur = 14;
 
   // White outline
-  x.strokeStyle = "rgba(255,255,255,0.85)";
-  x.lineWidth = 3;
-  x.strokeText(text, c.width / 2, c.height / 2);
+  ctx.strokeStyle = "rgba(255,255,255,0.88)";
+  ctx.lineWidth = 4;
+  ctx.strokeText(text, 256, 64);
 
-  // Dark text
-  x.fillStyle = "#1a1020";
-  x.fillText(text, c.width / 2, c.height / 2);
+  // Colored fill
+  ctx.fillStyle = hexStr;
+  ctx.fillText(text, 256, 64);
 
-  const tex = new THREE.CanvasTexture(c);
-  return tex;
+  return new THREE.CanvasTexture(canvas);
 }
 
-// ─── Plank dimensions (fallback if GLB fails) ────────────
-
-const PLANK_SIZES = {
-  short: { w: 1.8, h: 0.08, d: 0.5 },
-  mid:   { w: 2.8, h: 0.08, d: 0.5 },
-  long:  { w: 4.0, h: 0.08, d: 0.5 },
-};
-
-// ─── Single Plank ────────────────────────────────────────
-
-class LyricPlank {
-  constructor(text, engine, size, dropPos) {
+class LyricSprite {
+  constructor(text, engine, colorHex, boatPos) {
     this.engine = engine;
     this.alive = true;
-    this.sinking = false;
-    this.sinkTimer = 0;
+    this.age = 0;
+    this.lifetime = 3.0;
 
-    const { w, h, d } = size;
-
-    // === Lyric texture for top face ===
-    this.lyricTex = makeLyricTexture(text, 512, Math.round(512 * (d / w)));
-
-    // === Materials: wood sides, textured top ===
-    const woodSide = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
-    const woodBottom = new THREE.MeshLambertMaterial({ color: 0x6B4E31 });
-    const topMat = new THREE.MeshLambertMaterial({ map: this.lyricTex });
-
-    // BoxGeometry faces: [+x, -x, +y, -y, +z, -z]
-    this.materials = [woodSide, woodSide, topMat, woodBottom, woodSide, woodSide];
-
-    // === Three.js mesh ===
-    const geo = new THREE.BoxGeometry(w, h, d);
-    this.mesh = new THREE.Mesh(geo, this.materials);
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
-    engine.scene.add(this.mesh);
-
-    // === Cannon-es body (flat plank) ===
-    this.body = new CANNON.Body({
-      mass: 2,
-      position: new CANNON.Vec3(dropPos.x, 5 + Math.random() * 2, dropPos.z),
-      material: engine.materials.lyric,
-      linearDamping: 0.6,
-      angularDamping: 0.85,
+    this.texture = makeTextTexture(text, colorHex);
+    this.material = new THREE.SpriteMaterial({
+      map: this.texture,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
     });
-    this.body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
-    engine.world.addBody(this.body);
-  }
+    this.sprite = new THREE.Sprite(this.material);
 
-  update(dt, elapsed) {
-    if (!this.alive) return;
+    // Start scaled to near-zero (pop in over 150ms)
+    this.sprite.scale.set(0.01, 0.01 * 0.25, 1);
 
-    const p = this.body.position;
-    const vel = this.body.velocity;
-
-    if (!this.sinking) {
-      // === Buoyancy: spring force toward water surface ===
-      const waterLevel = 0.40;
-      const buoyancy = (waterLevel - p.y) * 25;
-      vel.y += buoyancy * dt;
-      vel.y *= 0.85; // water damping
-
-      // Prevent capsizing
-      this.body.angularVelocity.x *= 0.9;
-      this.body.angularVelocity.z *= 0.9;
-
-      // Slow down after landing (water drag)
-      if (p.y < 0.2) {
-        vel.x *= 0.995;
-        vel.z *= 0.995;
-      }
-    } else {
-      // === Sinking ===
-      this.sinkTimer += dt;
-      vel.y -= 0.5 * dt; // gentle pull down
-      vel.x *= 0.98;
-      vel.z *= 0.98;
-      // Tilt while sinking
-      this.body.angularVelocity.x += (Math.random() - 0.5) * 0.01;
-      this.body.angularVelocity.z += (Math.random() - 0.5) * 0.005;
-
-      const opacity = Math.max(0, 1 - this.sinkTimer * 0.3);
-      for (const mat of this.materials) {
-        mat.transparent = true;
-        mat.opacity = opacity;
-      }
-      if (opacity <= 0) this.alive = false;
-    }
-
-    // Sync mesh
-    this.mesh.position.copy(p);
-    this.mesh.quaternion.set(
-      this.body.quaternion.x, this.body.quaternion.y,
-      this.body.quaternion.z, this.body.quaternion.w
+    // Random scatter within 3 units of boat
+    const angle = Math.random() * Math.PI * 2;
+    const r = 0.5 + Math.random() * 2.5;
+    this.sprite.position.set(
+      boatPos.x + Math.cos(angle) * r,
+      boatPos.y + 0.3,
+      boatPos.z + Math.sin(angle) * r
     );
+
+    // Upward + gentle lateral velocity
+    this.vel = new THREE.Vector3(
+      (Math.random() - 0.5) * 0.8,
+      2.0 + Math.random() * 1.0,
+      (Math.random() - 0.5) * 0.8
+    );
+
+    engine.scene.add(this.sprite);
   }
 
-  startSink() {
-    if (this.sinking) return;
-    this.sinking = true;
-    this.body.collisionResponse = false;
+  update(dt) {
+    if (!this.alive) return;
+    this.age += dt;
+    const t = this.age / this.lifetime;
+
+    if (t >= 1) { this.alive = false; return; }
+
+    // Decelerate: exponential drag on velocity
+    const drag = Math.exp(-this.age * 1.2);
+    this.sprite.position.x += this.vel.x * drag * dt;
+    this.sprite.position.y += this.vel.y * drag * dt;
+    this.sprite.position.z += this.vel.z * drag * dt;
+
+    // Scale pop: 0 → 3.5 wide over first 150ms
+    const scaleFactor = Math.min(this.age / 0.15, 1.0);
+    const w = 3.5 * scaleFactor;
+    this.sprite.scale.set(w, w * 0.25, 1);
+
+    // Opacity: pop in 0→1 over 150ms, hold, fade out over last 1s
+    if (this.age < 0.15) {
+      this.material.opacity = this.age / 0.15;
+    } else if (this.age > this.lifetime - 1.0) {
+      this.material.opacity = Math.max(0, (this.lifetime - this.age) / 1.0);
+    } else {
+      this.material.opacity = 1.0;
+    }
   }
 
   dispose() {
-    this.engine.scene.remove(this.mesh);
-    this.engine.world.removeBody(this.body);
-    this.lyricTex.dispose();
-    this.mesh.geometry.dispose();
-    for (const m of this.materials) m.dispose();
+    this.engine.scene.remove(this.sprite);
+    this.texture.dispose();
+    this.material.dispose();
   }
 }
 
-// ─── LyricManager ────────────────────────────────────────
-
 export class LyricManager {
-  constructor(engine, boat) {
+  constructor(engine, boat, colorHex) {
     this.engine = engine;
     this.boat = boat;
-    this.planks = [];
+    this.colorHex = colorHex;
+    this.sprites = [];
     this.currentText = "";
-    this.sizes = { ...PLANK_SIZES };
-    this.ready = false;
-
-    this._loadModels();
-    engine.addUpdatable(this);
-  }
-
-  async _loadModels() {
-    this.ready = true;
-  }
-
-  _pickSize(text) {
-    const len = [...text].filter(c => c.trim()).length;
-    if (len <= 4) return this.sizes.short;
-    if (len <= 8) return this.sizes.mid;
-    return this.sizes.long;
-  }
-
-  _getDropPos() {
-    const boatPos = this.boat.getPosition();
-    const boatQuat = this.boat.body.quaternion;
-
-    const forward = new CANNON.Vec3(0, 0, -1);
-    boatQuat.vmult(forward, forward);
-    forward.y = 0;
-    forward.normalize();
-
-    const dist = 4 + Math.random() * 4;
-    const angle = (Math.random() - 0.5) * Math.PI * 0.4;
-    const cos = Math.cos(angle);
-    const sin = Math.sin(angle);
-
-    return {
-      x: boatPos.x + (forward.x * cos - forward.z * sin) * dist,
-      z: boatPos.z + (forward.x * sin + forward.z * cos) * dist,
-    };
+    this._updatable = { update: (dt) => this._update(dt) };
+    engine.addUpdatable(this._updatable);
   }
 
   addPhrase(text) {
-    if (!this.ready || !text || text === this.currentText) return;
+    if (!text || text === this.currentText) return;
     this.currentText = text;
 
-    // Sink oldest if 2+ floating
-    const floating = this.planks.filter(p => !p.sinking);
-    if (floating.length >= 2) {
-      floating[0].startSink();
+    // Cull oldest if at cap
+    while (this.sprites.length >= 40) {
+      this.sprites[0].dispose();
+      this.sprites.shift();
     }
 
-    const size = this._pickSize(text);
-    const dropPos = this._getDropPos();
-    this.planks.push(new LyricPlank(text, this.engine, size, dropPos));
+    const boatPos = this.boat.getPosition();
+    this.sprites.push(new LyricSprite(text, this.engine, this.colorHex, boatPos));
   }
 
-  update(dt, elapsed) {
-    for (const p of this.planks) p.update(dt, elapsed);
-    this.planks = this.planks.filter(p => {
-      if (!p.alive) { p.dispose(); return false; }
+  _update(dt) {
+    for (const s of this.sprites) s.update(dt);
+    this.sprites = this.sprites.filter(s => {
+      if (!s.alive) { s.dispose(); return false; }
       return true;
     });
+  }
+
+  dispose() {
+    this.engine.removeUpdatable(this._updatable);
+    for (const s of this.sprites) s.dispose();
+    this.sprites = [];
   }
 }
