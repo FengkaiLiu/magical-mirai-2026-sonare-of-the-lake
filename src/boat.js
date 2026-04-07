@@ -29,49 +29,87 @@ export class Boat {
 
     engine.world.addBody(this.body);
 
-    // === Three.js placeholder mesh ===
-    // TODO: Replace with .glb model loaded via GLTFLoader
+    // === Three.js mesh ===
     this.mesh = new THREE.Group();
 
-    const hullMat = new THREE.MeshLambertMaterial({ color: 0xd4a060 });
+    const hullMat = new THREE.MeshLambertMaterial({ color: 0xc08040 });
 
-    // 船体
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 1.2), hullMat);
-    hull.position.y = 0.1;
+    // Custom V-hull: 5 cross-sections [z, halfWidth, depth]
+    const secs = [
+      { z: -0.70, hw: 0.000, d: 0.000 }, // 0: bow tip
+      { z: -0.35, hw: 0.200, d: 0.200 }, // 1: front
+      { z:  0.00, hw: 0.300, d: 0.260 }, // 2: mid (beam)
+      { z:  0.35, hw: 0.275, d: 0.220 }, // 3: aft
+      { z:  0.65, hw: 0.225, d: 0.160 }, // 4: stern
+    ];
+
+    // Build vertex array
+    // Vertex layout: bow(0), then per section 1-4: portTop(3i-2), starbTop(3i-1), keel(3i)
+    const verts = [];
+    verts.push(0, 0, secs[0].z); // index 0: bow tip
+    for (let i = 1; i <= 4; i++) {
+      const s = secs[i];
+      verts.push(-s.hw,   0, s.z); // portTop
+      verts.push( s.hw,   0, s.z); // starbTop
+      verts.push( 0,   -s.d, s.z); // keel
+    }
+    // Index map: bow=0, front:[1,2,3], mid:[4,5,6], aft:[7,8,9], stern:[10,11,12]
+
+    // Build index array (CCW winding for outward normals)
+    const idx = [];
+
+    // Bow cap (tip → front section)
+    idx.push(0, 1, 2);  // deck triangle
+    idx.push(0, 3, 1);  // port bow face
+    idx.push(0, 2, 3);  // starboard bow face
+
+    // Section pairs: front→mid, mid→aft, aft→stern
+    const bases = [1, 4, 7, 10];
+    for (let i = 0; i < 3; i++) {
+      const pP = bases[i], pS = pP + 1, pK = pP + 2;
+      const cP = bases[i + 1], cS = cP + 1, cK = cP + 2;
+      idx.push(pP, pK, cP,  cP, pK, cK); // port quad
+      idx.push(pS, cS, pK,  cS, cK, pK); // starboard quad
+      idx.push(pP, cP, pS,  cP, cS, pS); // deck quad
+    }
+
+    // Stern cap
+    idx.push(10, 12, 11);
+
+    const hullGeo = new THREE.BufferGeometry();
+    hullGeo.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array(verts), 3)
+    );
+    hullGeo.setIndex(idx);
+    hullGeo.computeVertexNormals();
+
+    const hull = new THREE.Mesh(hullGeo, hullMat);
     hull.castShadow = true;
     this.mesh.add(hull);
 
-    // 船首
-    const bow = new THREE.Mesh(
-      new THREE.ConeGeometry(0.3, 0.5, 4),
-      hullMat
-    );
-    bow.rotation.x = -Math.PI / 2;
-    bow.position.set(0, 0.1, -0.75);
-    bow.castShadow = true;
-    this.mesh.add(bow);
-
-    // マスト
+    // Mast
     const mast = new THREE.Mesh(
       new THREE.CylinderGeometry(0.025, 0.025, 0.9),
       new THREE.MeshLambertMaterial({ color: 0x6b5030 })
     );
-    mast.position.set(0, 0.55, -0.1);
+    mast.position.set(0, 0.55, -0.05);
     this.mesh.add(mast);
 
-    // 帆
+    // Sail
     const sailGeo = new THREE.BufferGeometry();
-    sailGeo.setAttribute("position", new THREE.BufferAttribute(
-      new Float32Array([0,0,0, 0,0.55,0, 0.35,0.1,0]), 3
-    ));
+    sailGeo.setAttribute(
+      "position",
+      new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0, 0.55, 0, 0.35, 0.1, 0]), 3)
+    );
     sailGeo.computeVertexNormals();
     const sail = new THREE.Mesh(sailGeo, new THREE.MeshLambertMaterial({
       color: 0xeeeedd, side: THREE.DoubleSide, transparent: true, opacity: 0.9,
     }));
-    sail.position.set(0.02, 0.15, -0.1);
+    sail.position.set(0.02, 0.15, -0.05);
     this.mesh.add(sail);
 
-    // ランタン
+    // Lantern
     const lantern = new THREE.PointLight(0xffcc55, 0.8, 8);
     lantern.position.set(0, 0.5, -0.4);
     lantern.castShadow = true;
