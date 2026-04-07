@@ -174,15 +174,23 @@ class LyricBoard {
   preStep(dt, elapsed) {
     if (!this.alive) return;
 
-    // Buoyancy: spring force toward wave surface
+    // Buoyancy: strong spring force toward wave surface
     const wx = this.body.position.x;
     const wz = this.body.position.z;
     const targetY = waveHeight(wx, wz, elapsed) + 0.05;
-    const springF = (targetY - this.body.position.y) * 20;
+    const diff = targetY - this.body.position.y;
+    // Strong spring constant + damping
+    const springF = diff * 50 - this.body.velocity.y * 5;
     this.body.applyForce(
       new CANNON.Vec3(0, springF * this.body.mass, 0),
       this.body.position
     );
+
+    // Hard clamp: never sink below water surface
+    if (this.body.position.y < 0.0) {
+      this.body.position.y = 0.0;
+      this.body.velocity.y = Math.max(this.body.velocity.y, 0);
+    }
   }
 
   update(dt, elapsed) {
