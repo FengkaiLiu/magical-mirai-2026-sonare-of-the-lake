@@ -47,7 +47,7 @@ const lyrics = new LyricManager(engine, boat);
 // Debug用グローバル参照
 window._boat = boat;
 window._engine = engine;
-
+window._lyrics = lyrics;
 // Camera follows boat
 engine.addUpdatable({
   update() {
@@ -73,7 +73,10 @@ player.addListener({
     playBtn.disabled = false;
     playBtn.textContent = "▶ Play";
   },
-  onTimerReady() {},
+  onTimerReady() {
+    // Auto-play: timer ready means player is fully initialized
+    player.requestPlay();
+  },
   onTimeUpdate(pos) {
     if (timeTxt) timeTxt.textContent = `${fmt(pos)} / ${fmt(player.video?.duration||0)}`;
 

@@ -11,10 +11,10 @@ export class CameraController {
   constructor(engine) {
     this.camera = engine.camera;
 
-    // カメラの設定
-    this.height = 14;     // 船からの高さ
-    this.distance = 16;   // 船からの後方距離
-    this.lookAhead = 3;   // 注視点を船の前方にずらす量
+    // カメラの設定 (Bruno風の近い追従)
+    this.height = 8;      // 船からの高さ (was 14)
+    this.distance = 10;   // 船からの後方距離 (was 16)
+    this.lookAhead = 2;   // 注視点を船の前方にずらす量 (was 3)
 
     // スムーズ追従
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);

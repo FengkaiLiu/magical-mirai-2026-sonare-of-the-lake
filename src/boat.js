@@ -92,14 +92,19 @@ export class Boat {
   preStep(dt, elapsed) {
     const actions = this.controls.actions;
 
-    // 船の向き (quaternion → forward vector)
+    // 浮力: 弹簧式，把船推向水面 (waterLevel = 0)
+    const waterLevel = 0.30;
+    const buoyancy = (waterLevel - this.body.position.y) * 30; // 弹簧力
+    this.body.velocity.y += buoyancy * dt;
+    this.body.velocity.y *= 0.9; // 水的阻尼
+
+    // 船の向き
     const quat = this.body.quaternion;
     const forward = new CANNON.Vec3(0, 0, -1);
     quat.vmult(forward, forward);
     forward.y = 0;
     forward.normalize();
 
-    // === 速度操作 ===
     const vel = this.body.velocity;
 
     if (actions.forward) {
@@ -118,11 +123,9 @@ export class Boat {
       this.body.angularVelocity.y -= this.turnTorque * dt;
     }
 
-    // 水の抵抗
     vel.x *= 0.98;
     vel.z *= 0.98;
 
-    // 最大速度制限
     const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
     const maxSpeed = 8;
     if (speed > maxSpeed) {
@@ -131,13 +134,9 @@ export class Boat {
       vel.z *= ratio;
     }
 
-    // Y軸固定
-    this.body.position.y = 0.25;
-    vel.y = 0;
-
-    // 転覆防止
-    this.body.angularVelocity.x *= 0.9;
-    this.body.angularVelocity.z *= 0.9;
+    // 転覆防止 (X/Z回転を抑制するが完全にはロックしない)
+    this.body.angularVelocity.x *= 0.85;
+    this.body.angularVelocity.z *= 0.85;
   }
 
   /**
