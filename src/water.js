@@ -18,7 +18,9 @@ const vertShader = /* glsl */ `
     float w1 = wave(p, vec2(0.8, 0.6), 5.0, 0.08, 0.7);
     float w2 = wave(p, vec2(-0.5, 0.8), 8.0, 0.05, 0.5);
     float w3 = wave(p, vec2(0.3, -0.7), 3.0, 0.03, 1.0);
-    return w1 + w2 + w3;
+    float w4 = wave(p, vec2(0.6, -0.4), 1.5, 0.012, 1.8);
+    float w5 = wave(p, vec2(-0.3, 0.9), 2.0, 0.015, 1.4);
+    return w1 + w2 + w3 + w4 + w5;
   }
 
   void main() {
@@ -47,6 +49,8 @@ const fragShader = /* glsl */ `
   uniform vec3  uCamPos;
   uniform vec2  uCloudOffset;
   uniform float uCloudScale;
+  uniform vec3  uSkyTop;
+  uniform vec3  uSkyHorizon;
 
   varying vec3 vWorldPos;
   varying vec3 vWorldNormal;
@@ -62,12 +66,14 @@ const fragShader = /* glsl */ `
     // Wave-based color variation
     col += vec3(0.02, 0.04, 0.05) * (vWorldPos.y * 2.0);
 
-    // Fresnel rim
+    // Fresnel + sky reflection (R reused for sun specular below)
     float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-    col = mix(col, vec3(0.6, 0.8, 0.95), fresnel * 0.3);
+    vec3 R = reflect(-V, N);
+    float skyT = smoothstep(-0.1, 0.4, R.y);
+    vec3 skyRefl = mix(uSkyHorizon, uSkyTop, skyT);
+    col = mix(col, skyRefl, fresnel * 0.55);
 
     // Sun specular
-    vec3 R = reflect(-V, N);
     float spec = pow(max(dot(R, uSunDir), 0.0), 256.0);
     col += vec3(1.0, 0.95, 0.85) * spec * 0.6;
 
@@ -76,6 +82,10 @@ const fragShader = /* glsl */ `
     float c2 = sin(vWorldPos.x * 1.1 - uTime * 0.2) * sin(vWorldPos.z * 0.9 + uTime * 0.15);
     float caustic = (c1 + c2) * 0.015 + 0.02;
     col += vec3(caustic * 0.3, caustic * 0.6, caustic * 0.8);
+
+    // Foam at wave peaks
+    float foam = smoothstep(0.08, 0.16, vWorldPos.y);
+    col = mix(col, vec3(0.95, 0.97, 1.0), foam * 0.6);
 
     // Cloud shadow (two sin/cos noise layers, no texture needed)
     vec2 uv1 = vWorldPos.xz * uCloudScale + uCloudOffset;
@@ -89,7 +99,9 @@ const fragShader = /* glsl */ `
     float fog = smoothstep(35.0, 55.0, length(vWorldPos.xz));
     col = mix(col, uDeep * 0.8, fog);
 
-    gl_FragColor = vec4(col, 1.0);
+    // Depth-based transparency: near-shore slightly transparent, deep nearly opaque
+    float alpha = 0.88 + depth * 0.1;
+    gl_FragColor = vec4(col, alpha);
   }
 `;
 
@@ -106,6 +118,8 @@ export class Water {
       uCamPos:      { value: new THREE.Vector3() },
       uCloudOffset: { value: new THREE.Vector2(0, 0) },
       uCloudScale:  { value: 0.015 },
+      uSkyTop:      { value: new THREE.Color(0x1a7ad4) },
+      uSkyHorizon:  { value: new THREE.Color(0xe8f4ff) },
     };
 
     const geo = new THREE.PlaneGeometry(120, 120, 50, 50);
@@ -115,6 +129,7 @@ export class Water {
       vertexShader: vertShader,
       fragmentShader: fragShader,
       uniforms: this.uniforms,
+      transparent: true,
     });
 
     this.mesh = new THREE.Mesh(geo, mat);
