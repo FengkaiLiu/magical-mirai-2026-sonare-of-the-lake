@@ -37,7 +37,7 @@ export class Environment {
     scene.add(bounce);
 
     // === スカイドーム (昼空グラデーション) ===
-    const skyGeo = new THREE.SphereGeometry(150, 32, 16);
+    const skyGeo = new THREE.SphereGeometry(400, 32, 16);
     const skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
@@ -116,26 +116,7 @@ export class Environment {
       this.clouds.push({ sprite: cloud, speed: 0.005 + Math.random() * 0.01, angle });
     }
 
-    // === 木立 (湖の周囲を囲む — 昼の緑) ===
-    const treeCount = 80;
-    const treeGeo = new THREE.ConeGeometry(0.5, 2, 4);
-    const treeMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
-    const trees = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
-    const dummy = new THREE.Object3D();
-
-    for (let i = 0; i < treeCount; i++) {
-      const angle = (i / treeCount) * Math.PI * 2;
-      const radius = 42 + Math.sin(i * 2.5) * 4;
-      const h = 1.5 + Math.abs(Math.sin(i * 1.6)) * 3;
-      const s = 0.6 + Math.abs(Math.sin(i * 0.9)) * 0.7;
-      dummy.position.set(Math.cos(angle) * radius, h * 0.5, Math.sin(angle) * radius);
-      dummy.scale.set(s, h, s);
-      dummy.updateMatrix();
-      trees.setMatrixAt(i, dummy.matrix);
-    }
-    trees.instanceMatrix.needsUpdate = true;
-    trees.castShadow = true;
-    scene.add(trees);
+    // === 木立 removed — terrain model provides scenery ===
 
     // === 浮遊パーティクル (光の粒子、ホタルじゃなく光の反射) ===
     this.particleCount = 50;

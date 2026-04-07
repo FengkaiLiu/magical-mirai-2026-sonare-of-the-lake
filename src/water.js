@@ -90,10 +90,10 @@ const fragShader = /* glsl */ `
     col += vec3(caustic * 0.3, caustic * 0.6, caustic * 0.8);
 
     // --- Distance fog (blend to sky at far edges) ---
-    float fog = smoothstep(35.0, 55.0, length(vWorldPos.xz));
+    float fog = smoothstep(100.0, 160.0, length(vWorldPos.xz));
     col = mix(col, uDeep * 0.8, fog);
 
-    gl_FragColor = vec4(col, 1.0);
+    gl_FragColor = vec4(col, 0.75);
   }
 `;
 
@@ -108,13 +108,15 @@ export class Water {
     };
 
     // Low-poly mesh: fewer subdivisions + flat shading = faceted look
-    const geo = new THREE.PlaneGeometry(120, 120, 50, 50);
+    const geo = new THREE.PlaneGeometry(300, 300, 50, 50);
     geo.rotateX(-Math.PI / 2);
 
     const mat = new THREE.ShaderMaterial({
       vertexShader: vertShader,
       fragmentShader: fragShader,
       uniforms: this.uniforms,
+      transparent: true,
+      depthWrite: false,
     });
 
     this.mesh = new THREE.Mesh(geo, mat);

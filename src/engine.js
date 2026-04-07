@@ -23,7 +23,7 @@ export class Engine {
     this.scene = new THREE.Scene();
 
     this.camera = new THREE.PerspectiveCamera(
-      50, window.innerWidth / window.innerHeight, 0.1, 500
+      50, window.innerWidth / window.innerHeight, 0.1, 1000
     );
 
     // === Cannon-es Physics ===

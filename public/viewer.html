@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sonare of the Lake - Model Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+  canvas { display: block; }
+  #info {
+    position: absolute; top: 16px; left: 16px;
+    color: #ccc; font-size: 13px; line-height: 1.6;
+    background: rgba(0,0,0,0.6); padding: 12px 16px;
+    border-radius: 8px; pointer-events: none;
+  }
+  #info h3 { color: #63ecff; margin-bottom: 4px; font-size: 14px; }
+  #controls {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px;
+  }
+  #controls button {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+    color: #ccc; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; transition: all 0.2s;
+  }
+  #controls button:hover { background: rgba(99,236,255,0.2); border-color: #63ecff; color: #fff; }
+  #controls button.active { background: rgba(99,236,255,0.3); border-color: #63ecff; color: #63ecff; }
+  #loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    color: #63ecff; font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<div id="loading">Loading models...</div>
+<div id="info" style="display:none">
+  <h3>Sonare of the Lake - Preview</h3>
+  <div id="stats"></div>
+</div>
+<div id="controls" style="display:none">
+  <button class="active" onclick="setView('overview')">Overview</button>
+  <button onclick="setView('boat')">Boat Close-up</button>
+  <button onclick="setView('water')">Water Level</button>
+  <button onclick="toggleWater()">Toggle Water</button>
+  <button onclick="toggleWireframe()">Wireframe</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/r167/three.module.min.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+// We need to load OrbitControls and GLTFLoader via CDN
+const { OrbitControls } = await import('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/controls/OrbitControls.js');
+const { GLTFLoader } = await import('https://cdn.jsdelivr.net/npm/three@0.167.0/examples/jsm/loaders/GLTFLoader.js');
+
+// Scene setup
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.Fog(0x87CEEB, 100, 300);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(80, 60, 80);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.target.set(0, 0, 0);
+
+// Lighting
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambientLight);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+dirLight.position.set(50, 80, 30);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+const hemiLight = new THREE.HemisphereLight(0x87CEEB, 0x8B7D6B, 0.4);
+scene.add(hemiLight);
+
+// Water plane (simple transparent plane to simulate water level)
+const waterGeo = new THREE.PlaneGeometry(300, 300, 60, 60);
+const waterMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  uniforms: {
+    uTime: { value: 0 },
+    uWaterColor: { value: new THREE.Color(0x1a6e8a) },
+  },
+  vertexShader: `
+    uniform float uTime;
+    varying vec3 vWorldPos;
+    varying vec3 vNormal;
+    void main() {
+      vec3 pos = position;
+      pos.z += sin(pos.x * 0.08 + uTime) * 0.8 + cos(pos.y * 0.06 + uTime * 0.7) * 0.6;
+      vWorldPos = (modelMatrix * vec4(pos, 1.0)).xyz;
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform vec3 uWaterColor;
+    uniform float uTime;
+    varying vec3 vWorldPos;
+    varying vec3 vNormal;
+    void main() {
+      vec3 col = uWaterColor;
+      col += 0.05 * sin(vWorldPos.x * 0.1 + uTime);
+      float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0,1,0))), 2.0);
+      col = mix(col, vec3(0.6, 0.9, 1.0), fresnel * 0.3);
+      gl_FragColor = vec4(col, 0.65);
+    }
+  `,
+  side: THREE.DoubleSide,
+});
+const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+waterMesh.rotation.x = -Math.PI / 2;
+waterMesh.position.y = 0;
+scene.add(waterMesh);
+
+// Load models
+const loader = new GLTFLoader();
+let terrainModel, boatModel;
+let loadCount = 0;
+
+function onAllLoaded() {
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('info').style.display = 'block';
+  document.getElementById('controls').style.display = 'flex';
+  
+  let terrainTris = 0, boatTris = 0;
+  if (terrainModel) {
+    terrainModel.traverse(c => { if (c.isMesh) terrainTris += c.geometry.index ? c.geometry.index.count / 3 : 0; });
+  }
+  if (boatModel) {
+    boatModel.traverse(c => { if (c.isMesh) boatTris += c.geometry.index ? c.geometry.index.count / 3 : 0; });
+  }
+  document.getElementById('stats').innerHTML = 
+    `Terrain: ${Math.round(terrainTris).toLocaleString()} tris<br>` +
+    `Boat: ${Math.round(boatTris).toLocaleString()} tris<br>` +
+    `Drag to rotate / Scroll to zoom`;
+}
+
+function checkLoaded() {
+  loadCount++;
+  if (loadCount >= 2) onAllLoaded();
+}
+
+// Load terrain
+loader.load('/models/terrain.glb', (gltf) => {
+  terrainModel = gltf.scene;
+  terrainModel.traverse(child => {
+    if (child.isMesh) {
+      child.receiveShadow = true;
+      if (child.material) {
+        child.material.roughness = 1.0;
+        child.material.metalness = 0.0;
+      }
+    }
+  });
+  scene.add(terrainModel);
+  console.log('Terrain loaded');
+  checkLoaded();
+}, undefined, (err) => { console.error('Terrain load error:', err); checkLoaded(); });
+
+// Load boat
+loader.load('/models/boat.glb', (gltf) => {
+  boatModel = gltf.scene;
+  boatModel.position.set(0, 0.5, 0);
+  boatModel.traverse(child => {
+    if (child.isMesh) {
+      child.castShadow = true;
+    }
+  });
+  scene.add(boatModel);
+  console.log('Boat loaded');
+  checkLoaded();
+}, undefined, (err) => { console.error('Boat load error:', err); checkLoaded(); });
+
+// Views
+window.setView = function(view) {
+  document.querySelectorAll('#controls button').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  
+  if (view === 'overview') {
+    camera.position.set(80, 60, 80);
+    controls.target.set(0, 0, 0);
+  } else if (view === 'boat') {
+    camera.position.set(5, 4, 5);
+    controls.target.set(0, 1, 0);
+  } else if (view === 'water') {
+    camera.position.set(30, 2, 30);
+    controls.target.set(0, 0, 0);
+  }
+  controls.update();
+};
+
+window.toggleWater = function() {
+  waterMesh.visible = !waterMesh.visible;
+};
+
+let wireframe = false;
+window.toggleWireframe = function() {
+  wireframe = !wireframe;
+  if (terrainModel) {
+    terrainModel.traverse(c => { if (c.isMesh) c.material.wireframe = wireframe; });
+  }
+  if (boatModel) {
+    boatModel.traverse(c => { if (c.isMesh) c.material.wireframe = wireframe; });
+  }
+};
+
+// Animation
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  
+  waterMat.uniforms.uTime.value = t;
+  
+  // Gentle boat bobbing
+  if (boatModel) {
+    boatModel.position.y = 0.5 + Math.sin(t * 1.5) * 0.3;
+    boatModel.rotation.x = Math.sin(t * 1.2) * 0.02;
+    boatModel.rotation.z = Math.cos(t * 0.8) * 0.03;
+  }
+  
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ import { CameraController } from "./camera.js";
 import { Environment } from "./environment.js";
 import { LyricManager } from "./lyric-manager.js";
 import { SONGS } from "./songs.js";
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 // === DOM ===
 const mount      = document.getElementById("mount");
@@ -23,6 +24,7 @@ const pauseBtn   = document.getElementById("pause-btn");
 const timeTxt    = document.getElementById("time");
 const songSelect = document.getElementById("song-select");
 const songInfo   = document.getElementById("song-info");
+
 
 // === Song ===
 const params = new URLSearchParams(location.search);
@@ -48,6 +50,36 @@ const lyrics = new LyricManager(engine, boat);
 window._boat = boat;
 window._engine = engine;
 window._lyrics = lyrics;
+
+// === Load terrain & boat models ===
+const gltfLoader = new GLTFLoader();
+
+gltfLoader.load('/models/terrain.glb', (gltf) => {
+  const terrain = gltf.scene;
+  terrain.position.y = 2;  // 往上提更多，让山体挡住视野
+  terrain.traverse(child => {
+    if (child.isMesh) {
+      child.material.roughness = 1.0;
+      child.material.metalness = 0.0;
+    }
+  });
+  engine.scene.add(terrain);
+  console.log('Terrain loaded!');
+});
+
+gltfLoader.load('/models/boat.glb', (gltf) => {
+  const boatModel = gltf.scene;
+  boatModel.scale.set(0.3, 0.3, 0.3);
+  boatModel.rotation.y = Math.PI;  // 旋转180度，修正朝向
+  // 把模型挂到物理船的 mesh 上，这样会跟着动
+  boat.mesh.add(boatModel);
+  // 隐藏占位方块
+  boat.mesh.children.forEach(child => {
+    if (child !== boatModel) child.visible = false;
+  });
+  console.log('Boat model loaded!');
+});
+
 // Camera follows boat
 engine.addUpdatable({
   update() {
