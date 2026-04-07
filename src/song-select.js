@@ -186,11 +186,13 @@ export class SongSelectScene {
     this._camUpdatable = { update: () => this.cam.setTarget(this.boat.getPosition()) };
     engine.addUpdatable(this._camUpdatable);
 
-    // 6 cards in a circle, radius 18, starting at top (-Z axis)
+    // 6 cards in a horizontal row
     SONGS.forEach((song, i) => {
-      const angle = (i / SONGS.length) * Math.PI * 2 - Math.PI / 2;
-      const r = 18;
-      this.cards.push(new SongCard(song, i, engine, Math.cos(angle) * r, Math.sin(angle) * r));
+      const spacing = 5.5;
+      const totalWidth = (SONGS.length - 1) * spacing; // 27.5 for 6 songs
+      const x = i * spacing - totalWidth / 2;           // −13.75 … +13.75
+      const z = 14;
+      this.cards.push(new SongCard(song, i, engine, x, z));
     });
 
     // Hide the loading overlay (it starts visible and blocks the select screen)
