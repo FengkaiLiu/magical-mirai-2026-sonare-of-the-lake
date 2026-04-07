@@ -21,10 +21,10 @@ export class Environment {
     this.sunLight.shadow.mapSize.set(1024, 1024);
     this.sunLight.shadow.camera.near = 1;
     this.sunLight.shadow.camera.far = 60;
-    this.sunLight.shadow.camera.left = -20;
-    this.sunLight.shadow.camera.right = 20;
-    this.sunLight.shadow.camera.top = 20;
-    this.sunLight.shadow.camera.bottom = -20;
+    this.sunLight.shadow.camera.left = -30;
+    this.sunLight.shadow.camera.right = 30;
+    this.sunLight.shadow.camera.top = 30;
+    this.sunLight.shadow.camera.bottom = -30;
     scene.add(this.sunLight);
 
     this.fillLight = new THREE.DirectionalLight(0xffe0b0, 0.7);
@@ -78,7 +78,7 @@ export class Environment {
       new THREE.SphereGeometry(2.0, 32, 32),
       new THREE.MeshBasicMaterial({ color: 0xfff8d0 })
     );
-    this.sun.position.set(15, 35, -60);
+    this.sun.position.set(15, 55, -45);
     scene.add(this.sun);
     this._sceneObjects.push(this.sun);
 
