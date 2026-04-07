@@ -118,7 +118,7 @@ export class Water {
     });
 
     this.mesh = new THREE.Mesh(geo, mat);
-    this.mesh.receiveShadow = true;
+    // ShaderMaterial does not auto-receive shadows without manual shadow map sampling
     engine.scene.add(this.mesh);
 
     engine.addUpdatable(this);
@@ -142,5 +142,7 @@ export class Water {
     this.engine.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
+    this.engine = null;
+    this.camera = null;
   }
 }
