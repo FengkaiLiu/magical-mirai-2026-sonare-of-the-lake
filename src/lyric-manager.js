@@ -141,9 +141,13 @@ class LyricBoard {
     );
     this.mesh.castShadow = true;
 
-    // Initial position: at water surface
-    const initY = waveHeight(boatPos.x, boatPos.z, 0) + 0.05;
-    this.mesh.position.set(boatPos.x, initY, boatPos.z);
+    // Initial position: offset away from boat at water surface
+    const spawnAngle = Math.random() * Math.PI * 2;
+    const spawnDist = 3.0 + Math.random() * 2.0; // 3-5 units away
+    const spawnX = boatPos.x + Math.cos(spawnAngle) * spawnDist;
+    const spawnZ = boatPos.z + Math.sin(spawnAngle) * spawnDist;
+    const initY = waveHeight(spawnX, spawnZ, 0) + 0.05;
+    this.mesh.position.set(spawnX, initY, spawnZ);
 
     // Physics body
     const shape = new CANNON.Box(new CANNON.Vec3(1.25, 0.05, 0.6));
