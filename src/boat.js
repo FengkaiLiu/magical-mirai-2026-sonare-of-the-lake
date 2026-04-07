@@ -171,6 +171,10 @@ export class Boat {
   dispose() {
     this.engine.removeUpdatable(this);
     this.engine.scene.remove(this.mesh);
+    this.mesh.traverse(child => {
+      if (child.geometry) child.geometry.dispose();
+      if (child.material) child.material.dispose();
+    });
     this.engine.world.removeBody(this.body);
     this.engine = null;
   }

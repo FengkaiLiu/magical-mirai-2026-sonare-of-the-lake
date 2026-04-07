@@ -193,6 +193,9 @@ export class SongSelectScene {
       this.cards.push(new SongCard(song, i, engine, Math.cos(angle) * r, Math.sin(angle) * r));
     });
 
+    // Hide the loading overlay (it starts visible and blocks the select screen)
+    document.getElementById("overlay")?.classList.add("hidden");
+
     // Show hint
     const hint = document.getElementById("select-hint");
     if (hint) hint.style.display = "block";
@@ -228,7 +231,8 @@ export class SongSelectScene {
   _select(index) {
     this.selected = true;
     for (const card of this.cards) card.scatter();
-    setTimeout(() => this.onSelect(index), 600);
+    // 200ms: enough to see scatter begin before the fade-to-black overlay starts
+    setTimeout(() => this.onSelect(index), 200);
   }
 
   dispose() {
