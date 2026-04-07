@@ -12,11 +12,11 @@ export class Environment {
     this._sceneObjects = [];
 
     // === Lighting ===
-    this.ambientLight = new THREE.AmbientLight(0x8ec5e8, 1.2);
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
     scene.add(this.ambientLight);
 
-    this.sunLight = new THREE.DirectionalLight(0xfff4d6, 1.8);
-    this.sunLight.position.set(15, 30, -20);
+    this.sunLight = new THREE.DirectionalLight(0xfff4d6, 3.0);
+    this.sunLight.position.set(15, 60, -20);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(1024, 1024);
     this.sunLight.shadow.camera.near = 1;
@@ -27,11 +27,11 @@ export class Environment {
     this.sunLight.shadow.camera.bottom = -20;
     scene.add(this.sunLight);
 
-    this.fillLight = new THREE.DirectionalLight(0xffe0b0, 0.4);
+    this.fillLight = new THREE.DirectionalLight(0xffe0b0, 0.7);
     this.fillLight.position.set(-8, 12, 10);
     scene.add(this.fillLight);
 
-    this.bounceLight = new THREE.HemisphereLight(0x87ceeb, 0x3a6b35, 0.3);
+    this.bounceLight = new THREE.HemisphereLight(0x87ceeb, 0x3a6b35, 0.5);
     scene.add(this.bounceLight);
 
     // === Sky dome ===
@@ -39,9 +39,9 @@ export class Environment {
     this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
-        uTopColor:     { value: new THREE.Color(0x4a90d9) },
+        uTopColor:     { value: new THREE.Color(0x1a7ad4) },
         uBottomColor:  { value: new THREE.Color(0xb8daf0) },
-        uHorizonColor: { value: new THREE.Color(0xdceaf5) },
+        uHorizonColor: { value: new THREE.Color(0xe8f4ff) },
       },
       vertexShader: `
         varying vec3 vWorldPos;
@@ -97,7 +97,7 @@ export class Environment {
     for (let i = 0; i < 12; i++) {
       const mat = new THREE.SpriteMaterial({
         color: 0xffffff, transparent: true,
-        opacity: 0.15 + Math.random() * 0.2,
+        opacity: 0.35 + Math.random() * 0.25,
       });
       const cloud = new THREE.Sprite(mat);
       cloud.position.set(

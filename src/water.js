@@ -100,8 +100,8 @@ export class Water {
 
     this.uniforms = {
       uTime:        { value: 0 },
-      uShallow:     { value: new THREE.Color(0x3aadba) },
-      uDeep:        { value: new THREE.Color(0x1a6080) },
+      uShallow:     { value: new THREE.Color(0x5bc8d8) },
+      uDeep:        { value: new THREE.Color(0x2478a0) },
       uSunDir:      { value: new THREE.Vector3(0.3, 0.8, -0.5).normalize() },
       uCamPos:      { value: new THREE.Vector3() },
       uCloudOffset: { value: new THREE.Vector2(0, 0) },
