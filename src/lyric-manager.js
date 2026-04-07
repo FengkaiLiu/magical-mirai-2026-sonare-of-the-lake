@@ -1,7 +1,7 @@
 /**
- * LyricManager — rising text sprite system.
- * Each lyric phrase spawns a THREE.Sprite with CanvasTexture near the boat.
- * Sprites rise upward, decelerate, then fade out. No physics.
+ * LyricManager — rising 3D lyric slab system.
+ * Each lyric phrase spawns a billboarded BoxGeometry mesh with CanvasTexture near the boat.
+ * Slabs rise upward, decelerate, then fade out. No physics.
  */
 
 import * as THREE from "three";
@@ -69,26 +69,41 @@ function makeTextTexture(text, colorHex) {
 class LyricSprite {
   constructor(text, engine, colorHex, boatPos) {
     this.engine = engine;
+    this.camera = engine.camera;
     this.alive = true;
     this.age = 0;
     this.lifetime = 3.0;
 
     this.texture = makeTextTexture(text, colorHex);
-    this.material = new THREE.SpriteMaterial({
+
+    // Side faces: solid blue edge matching bubble rim
+    const sideMat = new THREE.MeshBasicMaterial({
+      color: 0x4090c0,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    // Front (+z) and back (-z) faces: the bubble canvas
+    const faceMat = new THREE.MeshBasicMaterial({
       map: this.texture,
       transparent: true,
       opacity: 0,
       depthWrite: false,
     });
-    this.sprite = new THREE.Sprite(this.material);
 
-    // Start scaled to near-zero (pop in over 150ms)
-    this.sprite.scale.set(0.01, 0.01, 1);
+    // BoxGeometry face order: right(+x), left(-x), top(+y), bottom(-y), front(+z), back(-z)
+    this.mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 2.5, 0.12),
+      [sideMat, sideMat, sideMat, sideMat, faceMat, faceMat]
+    );
+
+    // Start near-zero (pop in over 150ms); depth (Z scale) stays fixed at 1
+    this.mesh.scale.set(0.01, 0.01, 1);
 
     // Random scatter within 3 units of boat
     const angle = Math.random() * Math.PI * 2;
     const r = 0.5 + Math.random() * 2.5;
-    this.sprite.position.set(
+    this.mesh.position.set(
       boatPos.x + Math.cos(angle) * r,
       boatPos.y + 0.3,
       boatPos.z + Math.sin(angle) * r
@@ -101,7 +116,7 @@ class LyricSprite {
       (Math.random() - 0.5) * 0.8
     );
 
-    engine.scene.add(this.sprite);
+    engine.scene.add(this.mesh);
   }
 
   update(dt) {
@@ -111,33 +126,49 @@ class LyricSprite {
 
     if (t >= 1) { this.alive = false; return; }
 
+    // Billboard: always face the camera
+    this.mesh.quaternion.copy(this.camera.quaternion);
+
     // Decelerate: exponential drag on velocity
     const drag = Math.exp(-this.age * 1.2);
-    this.sprite.position.x += this.vel.x * drag * dt;
-    this.sprite.position.y += this.vel.y * drag * dt;
-    this.sprite.position.z += this.vel.z * drag * dt;
+    this.mesh.position.x += this.vel.x * drag * dt;
+    this.mesh.position.y += this.vel.y * drag * dt;
+    this.mesh.position.z += this.vel.z * drag * dt;
 
-    // Scale pop: 0 → 3.5 wide over first 150ms
+    // Scale pop: X and Y grow 0→2.5 over first 150ms; Z (depth 0.12) stays fixed
     const scaleFactor = Math.min(this.age / 0.15, 1.0);
     const w = 2.5 * scaleFactor;
-    this.sprite.scale.set(w, w, 1);
+    this.mesh.scale.set(w, w, 1);
 
-    // Opacity: pop in 0→1 over 150ms, hold, fade out over last 1s
+    // Opacity: fade in 0→1 over 150ms, hold, fade out over last 1s
+    let opacity;
     if (this.age < 0.15) {
-      this.material.opacity = this.age / 0.15;
+      opacity = this.age / 0.15;
     } else if (this.age > this.lifetime - 1.0) {
-      this.material.opacity = Math.max(0, (this.lifetime - this.age) / 1.0);
+      opacity = Math.max(0, (this.lifetime - this.age) / 1.0);
     } else {
-      this.material.opacity = 1.0;
+      opacity = 1.0;
+    }
+
+    // Apply opacity to all materials (sideMat shared by indices 0-3, faceMat by 4-5)
+    const seen = new Set();
+    for (const mat of this.mesh.material) {
+      if (!seen.has(mat)) { mat.opacity = opacity; seen.add(mat); }
     }
   }
 
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
-    this.engine.scene.remove(this.sprite);
+    this.engine.scene.remove(this.mesh);
+    this.mesh.geometry.dispose();
+    const seen = new Set();
+    for (const mat of this.mesh.material) {
+      if (!seen.has(mat)) { mat.dispose(); seen.add(mat); }
+    }
     this.texture.dispose();
-    this.material.dispose();
+    this.engine = null;
+    this.camera = null;
   }
 }
 
