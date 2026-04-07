@@ -55,25 +55,26 @@ export class LakeScene {
       mediaElement: document.createElement("audio"),
     });
 
+    this._managed = false;
     this.player.addListener({
       onAppReady: (app) => {
+        this._managed = app.managed;
         if (!app.managed) {
           this.player.createFromSongUrl(this.song.url, this.song.options);
         }
       },
       onVideoReady: () => {
-        const btn = document.getElementById("play-btn");
-        if (btn) { btn.disabled = false; btn.textContent = "▶ Play"; }
+        // #play-btn is not in the current HTML (auto-play via onTimerReady)
       },
       onTimerReady: () => {
-        this.player.requestPlay();
+        if (!this._managed) this.player.requestPlay();
       },
       onTimeUpdate: (pos) => {
         const timeTxt = document.getElementById("time");
         if (timeTxt) {
           timeTxt.textContent = `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
         }
-        const phrase = this.player.video.findPhrase(pos);
+        const phrase = this.player.video?.findPhrase(pos);
         if (phrase) this.lyrics.addPhrase(phrase.text);
       },
       onPlay: () => {
@@ -94,6 +95,7 @@ export class LakeScene {
   }
 
   dispose() {
+    this.player.dispose();
     this.engine.removeUpdatable(this._camUpdatable);
     this.water.dispose();
     this.env.dispose();
