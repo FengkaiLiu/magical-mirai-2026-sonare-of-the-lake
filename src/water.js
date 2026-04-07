@@ -108,7 +108,7 @@ export class Water {
     };
 
     // Low-poly mesh: fewer subdivisions + flat shading = faceted look
-    const geo = new THREE.PlaneGeometry(120, 120, 80, 80);
+    const geo = new THREE.PlaneGeometry(120, 120, 50, 50);
     geo.rotateX(-Math.PI / 2);
 
     const mat = new THREE.ShaderMaterial({

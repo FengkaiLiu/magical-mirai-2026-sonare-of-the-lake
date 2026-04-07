@@ -112,7 +112,7 @@ export class Engine {
    */
   start() {
     const tick = () => {
-      const dt = this.clock.getDelta();
+      const dt = Math.min(this.clock.getDelta(), 0.05); // clamp to 50ms max
       this.elapsed = this.clock.getElapsedTime();
 
       // 1. Pre-step: input & forces (before physics solves)
