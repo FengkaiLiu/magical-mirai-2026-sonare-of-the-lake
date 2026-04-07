@@ -154,6 +154,8 @@ class LyricBoard {
       angularDamping: 0.9,
     });
     this.body.addShape(shape);
+    // Lock rotation on X and Z axes — board stays flat
+    this.body.angularFactor.set(0, 1, 0);
     this.body.position.copy(this.mesh.position);
 
     // Small random kick away from boat
@@ -195,10 +197,6 @@ class LyricBoard {
     // Sync mesh to physics body
     this.mesh.position.copy(this.body.position);
     this.mesh.quaternion.copy(this.body.quaternion);
-
-    // Clamp rotation to keep board roughly flat
-    const targetQuat = new THREE.Quaternion();
-    this.mesh.quaternion.slerp(targetQuat, Math.min(dt * 0.5, 1.0));
 
     // Opacity: fade in 0.5s, hold, fade out last 2s
     let opacity = 1.0;

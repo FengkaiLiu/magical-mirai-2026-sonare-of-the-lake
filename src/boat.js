@@ -26,6 +26,8 @@ export class Boat {
       allowSleep: false,
     });
     this.body.addShape(shape);
+    // Lock rotation on X and Z axes — boat rotates only around Y (turning)
+    this.body.angularFactor.set(0, 1, 0);
 
     engine.world.addBody(this.body);
 
