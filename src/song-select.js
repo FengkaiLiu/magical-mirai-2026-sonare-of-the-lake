@@ -21,7 +21,7 @@ class SongCard {
     this.x = x;
     this.z = z;
     this.baseY = 0.65;
-    this.bobOffset = index * ((Math.PI * 2) / 6);
+    this.bobOffset = index * ((Math.PI * 2) / SONGS.length);
     this.scattered = false;
     this.scatterVel = new THREE.Vector3();
 
@@ -116,6 +116,7 @@ class SongCard {
       this.mesh.position.y += this.scatterVel.y * dt;
       this.scatterVel.y -= 9 * dt; // gravity pull
       this.glowMesh.position.copy(this.mesh.position);
+      this.glowMesh.rotation.copy(this.mesh.rotation);
       return;
     }
 
