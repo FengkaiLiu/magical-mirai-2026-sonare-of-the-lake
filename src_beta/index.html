@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sonare of the Lake</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="mount"></div>
+
+  <div id="overlay">
+    <h1>Sonare of the Lake</h1>
+    <p>Magical Mirai 2026</p>
+    <select id="song-select">
+      <option value="0">🏆 Answer Me / imie</option>
+      <option value="1">After The Curtain / Rulmry</option>
+      <option value="2">Shutter Chance / 夜未アガリ</option>
+      <option value="3">The Last March on Earth</option>
+      <option value="4">Toritsukulogy / 鶴三</option>
+      <option value="5">TAKEOVER / Twinfield</option>
+    </select>
+    <button id="play-btn" disabled>Loading...</button>
+    <span class="hint">W A S D to sail</span>
+  </div>
+
+  <div id="hud">
+    <button id="pause-btn">⏸</button>
+    <span id="time">0:00 / 0:00</span>
+    <span id="song-info"></span>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

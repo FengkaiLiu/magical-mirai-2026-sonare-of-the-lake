@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Magical Mirai 2026 - Lyric App</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- ==========================================
+           Lyric App Container
+           歌词应用主容器
+           ========================================== -->
+
+      <!-- Loading / Welcome Screen -->
+      <div id="overlay">
+        <h1>Magical Mirai 2026</h1>
+        <p>Sonare of the Lake</p>
+
+        <!-- Song Selector -->
+        <select id="song-select">
+          <option value="0">🏆 こたえて (Answer Me) / imie</option>
+          <option value="1">アフター・ザ・カーテン / Rulmry</option>
+          <option value="2">シャッターチャンス / 夜未アガリ</option>
+          <option value="3">世界最後の音楽隊 / 夏山よつぎ×ど～ぱみん</option>
+          <option value="4">トリツクロジー / 鶴三</option>
+          <option value="5">TAKEOVER / Twinfield</option>
+        </select>
+
+        <button id="play-btn">▶ Play</button>
+      </div>
+
+      <!-- Song Title Display -->
+      <div id="song-info">
+        <span id="song-title"></span>
+      </div>
+
+      <!-- Lyric Display Area -->
+      <div id="lyric-container">
+        <p id="lyric-text"></p>
+      </div>
+
+      <!-- Playback Controls -->
+      <div id="controls">
+        <button id="pause-btn">⏸</button>
+        <span id="time-display">0:00 / 0:00</span>
+      </div>
+    </div>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,160 @@
+/* ==========================================
+   Magical Mirai 2026 - Lyric App
+   Base Styles
+   ========================================== */
+
+/* --- Reset & Base --- */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Theme colors - 根据最终创意方向调整 */
+  --color-bg: #0a0e1a;
+  --color-text: #e8ecf4;
+  --color-accent: #39c5bb; /* Miku teal */
+  --color-accent-soft: rgba(57, 197, 187, 0.3);
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: "Helvetica Neue", Arial, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* --- App Container --- */
+#app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* --- Overlay / Welcome Screen --- */
+#overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg);
+  z-index: 100;
+  transition: opacity 0.8s ease;
+}
+
+#overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#overlay h1 {
+  font-size: 2rem;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.5rem;
+}
+
+#overlay p {
+  font-size: 1rem;
+  opacity: 0.6;
+  margin-bottom: 2rem;
+}
+
+/* --- Song Selector --- */
+#song-select {
+  padding: 0.6rem 1rem;
+  font-size: 0.95rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  cursor: pointer;
+  max-width: 90vw;
+}
+
+#song-select option {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* --- Song Info (shown during playback) --- */
+#song-info {
+  position: absolute;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  opacity: 0.5;
+  white-space: nowrap;
+}
+
+#play-btn {
+  padding: 0.8rem 2.5rem;
+  font-size: 1.1rem;
+  border: 2px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-accent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.3s, color 0.3s;
+}
+
+#play-btn:hover {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+/* --- Lyric Display --- */
+#lyric-container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+#lyric-text {
+  font-size: 2.5rem;
+  font-weight: bold;
+  text-align: center;
+  transition: opacity 0.3s ease;
+}
+
+/* --- Playback Controls --- */
+#controls {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  opacity: 0.6;
+  transition: opacity 0.3s;
+}
+
+#controls:hover {
+  opacity: 1;
+}
+
+#pause-btn {
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+#time-display {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}

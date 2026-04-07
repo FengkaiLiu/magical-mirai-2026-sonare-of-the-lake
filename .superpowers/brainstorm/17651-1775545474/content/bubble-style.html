@@ -1,0 +1,55 @@
+<h2>Lyric Bubble Style</h2>
+<p class="subtitle">Currently lyrics are flat colored text sprites rising from the water. Which bubble style fits the lake atmosphere?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="soap" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a3a5c;padding:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;min-height:140px">
+      <div style="position:relative;width:110px;height:110px">
+        <div style="width:110px;height:110px;border-radius:50%;background:radial-gradient(circle at 35% 35%, rgba(255,255,255,0.7), rgba(180,220,255,0.35) 50%, rgba(100,180,255,0.15));border:2px solid rgba(200,235,255,0.6);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:bold;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,100,200,0.5);text-align:center;padding:8px">こたえて</div>
+        <div style="position:absolute;top:14px;left:18px;width:22px;height:10px;background:rgba(255,255,255,0.6);border-radius:50%;transform:rotate(-35deg)"></div>
+      </div>
+      <div style="position:relative;width:80px;height:80px">
+        <div style="width:80px;height:80px;border-radius:50%;background:radial-gradient(circle at 35% 35%, rgba(255,255,255,0.7), rgba(200,230,255,0.3) 50%, rgba(120,190,255,0.1));border:2px solid rgba(200,235,255,0.5);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;color:rgba(255,255,255,0.85);text-align:center;padding:4px">風が吹いた</div>
+        <div style="position:absolute;top:10px;left:14px;width:16px;height:7px;background:rgba(255,255,255,0.55);border-radius:50%;transform:rotate(-35deg)"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Soap Bubble</h3>
+      <p>Translucent spheres with glossy highlight and iridescent rim. Text floats inside. Dreamy, ethereal feel matching the lake.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="water" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a3a5c;padding:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;min-height:140px">
+      <div style="position:relative">
+        <div style="padding:10px 20px;background:rgba(40,120,200,0.45);border:2px solid rgba(100,200,255,0.7);border-radius:40px;color:white;font-size:14px;font-weight:bold;text-shadow:0 0 8px rgba(100,200,255,0.9);box-shadow:0 0 16px rgba(80,180,255,0.4),inset 0 1px 0 rgba(255,255,255,0.3)">こたえて</div>
+      </div>
+      <div>
+        <div style="padding:8px 14px;background:rgba(40,120,200,0.4);border:2px solid rgba(100,200,255,0.6);border-radius:40px;color:white;font-size:11px;font-weight:bold;text-shadow:0 0 6px rgba(100,200,255,0.8);box-shadow:0 0 10px rgba(80,180,255,0.35),inset 0 1px 0 rgba(255,255,255,0.25)">星が見える</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Water Droplet</h3>
+      <p>Pill-shaped bubbles with blue glow and water sheen. Text is brighter with a neon-underwater feel. More readable from a distance.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="round" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#1a3a5c;padding:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;min-height:140px">
+      <div style="position:relative;width:100px;height:100px">
+        <div style="width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,0.12);border:3px solid rgba(255,255,255,0.8);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:white;text-shadow:0 1px 6px rgba(0,0,0,0.5);box-shadow:0 0 20px rgba(255,255,255,0.25);text-align:center;padding:6px">こたえて</div>
+      </div>
+      <div style="position:relative;width:72px;height:72px">
+        <div style="width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,0.1);border:3px solid rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:white;text-shadow:0 1px 4px rgba(0,0,0,0.5);box-shadow:0 0 14px rgba(255,255,255,0.2);text-align:center;padding:4px">風が吹いた</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Clean Orb</h3>
+      <p>Simple white circle border with near-transparent fill. Minimal, elegant. Size varies by phrase length. Clean against any background.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:16px">All styles: sprites rise from water near the boat, decelerate, and fade out over ~3 seconds.</p>
