@@ -1,8 +1,6 @@
 /**
- * ==========================================
- * Environment — 環境演出 (昼バージョン)
- * ==========================================
- * 空、太陽、雲、木立、パーティクル、ライティング
+ * Environment — sky, sun, clouds, trees, particles.
+ * Cloud drift direction matches water shader cloud shadow.
  */
 
 import * as THREE from "three";
@@ -11,9 +9,11 @@ export class Environment {
   constructor(engine) {
     this.engine = engine;
     const scene = engine.scene;
+    this._sceneObjects = [];
 
-    // === ライティング (昼) ===
-    scene.add(new THREE.AmbientLight(0x8ec5e8, 1.2));
+    // === Lighting ===
+    this.ambientLight = new THREE.AmbientLight(0x8ec5e8, 1.2);
+    scene.add(this.ambientLight);
 
     this.sunLight = new THREE.DirectionalLight(0xfff4d6, 1.8);
     this.sunLight.position.set(15, 30, -20);
@@ -27,24 +27,21 @@ export class Environment {
     this.sunLight.shadow.camera.bottom = -20;
     scene.add(this.sunLight);
 
-    // 暖色fill (stronger for day)
-    const fill = new THREE.DirectionalLight(0xffe0b0, 0.4);
-    fill.position.set(-8, 12, 10);
-    scene.add(fill);
+    this.fillLight = new THREE.DirectionalLight(0xffe0b0, 0.4);
+    this.fillLight.position.set(-8, 12, 10);
+    scene.add(this.fillLight);
 
-    // 底部微弱反射光
-    const bounce = new THREE.HemisphereLight(0x87ceeb, 0x3a6b35, 0.3);
-    scene.add(bounce);
+    this.bounceLight = new THREE.HemisphereLight(0x87ceeb, 0x3a6b35, 0.3);
+    scene.add(this.bounceLight);
 
-    // === スカイドーム (昼空グラデーション) ===
+    // === Sky dome ===
     const skyGeo = new THREE.SphereGeometry(150, 32, 16);
-    const skyMat = new THREE.ShaderMaterial({
+    this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
       uniforms: {
-        uTopColor:    { value: new THREE.Color(0x4a90d9) },
-        uBottomColor: { value: new THREE.Color(0xb8daf0) },
-        uHorizonColor:{ value: new THREE.Color(0xdceaf5) },
-        uOffset:      { value: 0.0 },
+        uTopColor:     { value: new THREE.Color(0x4a90d9) },
+        uBottomColor:  { value: new THREE.Color(0xb8daf0) },
+        uHorizonColor: { value: new THREE.Color(0xdceaf5) },
       },
       vertexShader: `
         varying vec3 vWorldPos;
@@ -63,66 +60,68 @@ export class Environment {
           float h = normalize(vWorldPos).y;
           vec3 col;
           if (h > 0.0) {
-            // 上半分: horizon → top
             float t = smoothstep(0.0, 0.6, h);
             col = mix(uHorizonColor, uTopColor, t);
           } else {
-            // 下半分 (水面反射用): horizon → bottom
             col = uHorizonColor;
           }
           gl_FragColor = vec4(col, 1.0);
         }
       `,
     });
-    this.skyMat = skyMat;
-    scene.add(new THREE.Mesh(skyGeo, skyMat));
+    this.skyMesh = new THREE.Mesh(skyGeo, this.skyMat);
+    scene.add(this.skyMesh);
+    this._sceneObjects.push(this.skyMesh);
 
-    // === 太陽 ===
+    // === Sun ===
     this.sun = new THREE.Mesh(
       new THREE.SphereGeometry(2.0, 32, 32),
       new THREE.MeshBasicMaterial({ color: 0xfff8d0 })
     );
     this.sun.position.set(15, 35, -60);
     scene.add(this.sun);
+    this._sceneObjects.push(this.sun);
 
-    // 太陽グロー
-    const halo = new THREE.Mesh(
+    this.halo = new THREE.Mesh(
       new THREE.SphereGeometry(6, 32, 32),
       new THREE.MeshBasicMaterial({
         color: 0xfffae0, transparent: true, opacity: 0.08, side: THREE.BackSide,
       })
     );
-    halo.position.copy(this.sun.position);
-    scene.add(halo);
-    this.halo = halo;
+    this.halo.position.copy(this.sun.position);
+    scene.add(this.halo);
+    this._sceneObjects.push(this.halo);
 
-    // === 雲 (簡易ビルボード) ===
+    // === Clouds — drift in +X/+Z to match water shadow ===
     this.clouds = [];
-    const cloudMat = new THREE.SpriteMaterial({
-      color: 0xffffff, transparent: true, opacity: 0.3,
-    });
     for (let i = 0; i < 12; i++) {
-      const cloud = new THREE.Sprite(cloudMat.clone());
-      const angle = Math.random() * Math.PI * 2;
-      const r = 60 + Math.random() * 50;
+      const mat = new THREE.SpriteMaterial({
+        color: 0xffffff, transparent: true,
+        opacity: 0.15 + Math.random() * 0.2,
+      });
+      const cloud = new THREE.Sprite(mat);
       cloud.position.set(
-        Math.cos(angle) * r,
+        (Math.random() - 0.5) * 200,
         18 + Math.random() * 15,
-        Math.sin(angle) * r
+        (Math.random() - 0.5) * 200
       );
-      cloud.scale.set(8 + Math.random() * 12, 2 + Math.random() * 3, 1);
-      cloud.material.opacity = 0.15 + Math.random() * 0.2;
+      cloud.scale.set(10 + Math.random() * 14, 2.5 + Math.random() * 3, 1);
       scene.add(cloud);
-      this.clouds.push({ sprite: cloud, speed: 0.005 + Math.random() * 0.01, angle });
+      this._sceneObjects.push(cloud);
+      // Drift at speeds matching water's uCloudOffset advancement
+      this.clouds.push({
+        sprite: cloud,
+        driftX: (0.4 + Math.random() * 0.4) * 8,
+        driftZ: (0.2 + Math.random() * 0.2) * 5,
+      });
     }
 
-    // === 木立 (湖の周囲を囲む — 昼の緑) ===
+    // === Trees ===
     const treeCount = 80;
     const treeGeo = new THREE.ConeGeometry(0.5, 2, 4);
     const treeMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
-    const trees = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
+    this.trees = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
     const dummy = new THREE.Object3D();
-
     for (let i = 0; i < treeCount; i++) {
       const angle = (i / treeCount) * Math.PI * 2;
       const radius = 42 + Math.sin(i * 2.5) * 4;
@@ -131,13 +130,14 @@ export class Environment {
       dummy.position.set(Math.cos(angle) * radius, h * 0.5, Math.sin(angle) * radius);
       dummy.scale.set(s, h, s);
       dummy.updateMatrix();
-      trees.setMatrixAt(i, dummy.matrix);
+      this.trees.setMatrixAt(i, dummy.matrix);
     }
-    trees.instanceMatrix.needsUpdate = true;
-    trees.castShadow = true;
-    scene.add(trees);
+    this.trees.instanceMatrix.needsUpdate = true;
+    this.trees.castShadow = true;
+    scene.add(this.trees);
+    this._sceneObjects.push(this.trees);
 
-    // === 浮遊パーティクル (光の粒子、ホタルじゃなく光の反射) ===
+    // === Floating particles ===
     this.particleCount = 50;
     const pPos = new Float32Array(this.particleCount * 3);
     this.particleVel = new Float32Array(this.particleCount * 3);
@@ -155,32 +155,32 @@ export class Environment {
       color: 0xfff8d0, size: 0.06, sizeAttenuation: true, transparent: true, opacity: 0.35,
     }));
     scene.add(this.particles);
+    this._sceneObjects.push(this.particles);
 
     engine.addUpdatable(this);
   }
 
   setTheme(theme) {
-    if (theme.sky) {
-      this.skyMat.uniforms.uTopColor.value.set(theme.sky);
-    }
+    if (theme.sky) this.skyMat.uniforms.uTopColor.value.set(theme.sky);
     this.engine.renderer.setClearColor(theme.skyHorizon || 0xb8daf0);
     this.particles.material.color.set(theme.particle);
   }
 
   update(dt, elapsed) {
-    // 太陽ボブ
+    // Sun bob
     this.sun.position.y = 35 + Math.sin(elapsed * 0.15) * 0.05;
     this.halo.position.copy(this.sun.position);
 
-    // 雲の移動
+    // Cloud linear drift (matches water shader direction)
     for (const c of this.clouds) {
-      c.angle += c.speed * dt;
-      const r = 60 + Math.sin(c.angle * 0.3) * 20;
-      c.sprite.position.x += Math.cos(c.angle) * c.speed;
-      c.sprite.position.z += Math.sin(c.angle) * c.speed * 0.3;
+      c.sprite.position.x += c.driftX * dt;
+      c.sprite.position.z += c.driftZ * dt;
+      // Wrap clouds to stay in visible range
+      if (c.sprite.position.x > 120) c.sprite.position.x -= 240;
+      if (c.sprite.position.z > 120) c.sprite.position.z -= 240;
     }
 
-    // パーティクル
+    // Particles rise and reset
     const p = this.particles.geometry.attributes.position.array;
     const v = this.particleVel;
     for (let i = 0; i < this.particleCount; i++) {
@@ -192,5 +192,24 @@ export class Environment {
       }
     }
     this.particles.geometry.attributes.position.needsUpdate = true;
+  }
+
+  dispose() {
+    this.engine.removeUpdatable(this);
+    const scene = this.engine.scene;
+    scene.remove(this.ambientLight);
+    scene.remove(this.sunLight);
+    scene.remove(this.fillLight);
+    scene.remove(this.bounceLight);
+    for (const obj of this._sceneObjects) scene.remove(obj);
+    // Dispose geometries and materials
+    this.skyMesh.geometry.dispose();
+    this.skyMat.dispose();
+    this.sun.geometry.dispose(); this.sun.material.dispose();
+    this.halo.geometry.dispose(); this.halo.material.dispose();
+    this.trees.geometry.dispose(); this.trees.material.dispose();
+    this.particles.geometry.dispose(); this.particles.material.dispose();
+    for (const c of this.clouds) c.sprite.material.dispose();
+    this.engine = null;
   }
 }
