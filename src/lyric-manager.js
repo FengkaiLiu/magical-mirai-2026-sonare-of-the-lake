@@ -8,37 +8,60 @@ import * as THREE from "three";
 
 function makeTextTexture(text, colorHex) {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 128;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, 512, 128);
+  ctx.clearRect(0, 0, 256, 256);
 
   const hexStr = "#" + colorHex.toString(16).padStart(6, "0");
 
-  // Size text to fit canvas width
-  let fontSize = 80;
-  const fontFace = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  // Radial gradient fill: bright highlight at top-left → translucent blue at edge
+  const grad = ctx.createRadialGradient(85, 85, 8, 128, 128, 120);
+  grad.addColorStop(0,   "rgba(255, 255, 255, 0.65)");
+  grad.addColorStop(0.4, "rgba(180, 220, 255, 0.35)");
+  grad.addColorStop(1,   "rgba(100, 180, 255, 0.18)");
+
+  // Clip to circle, fill bubble
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(128, 128, 120, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.restore();
+
+  // Border ring
+  ctx.beginPath();
+  ctx.arc(128, 128, 120, 0, Math.PI * 2);
+  ctx.strokeStyle = "rgba(200, 235, 255, 0.7)";
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Glossy highlight: small rotated ellipse at top-left
+  ctx.save();
+  ctx.translate(55, 50);
+  ctx.rotate(-0.6);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 20, 9, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+  ctx.fill();
+  ctx.restore();
+
+  // Text centered in bubble, auto-sized to fit within 200px diameter
+  let fontSize = 52;
+  const fontFace = (s) =>
+    `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   ctx.font = fontFace(fontSize);
-  while (ctx.measureText(text).width > 480 && fontSize > 24) {
+  while (ctx.measureText(text).width > 200 && fontSize > 24) {
     fontSize -= 2;
     ctx.font = fontFace(fontSize);
   }
-
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-
-  // White outline (no glow on stroke — glow only on the colored fill)
-  ctx.shadowColor = "transparent";
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "rgba(255,255,255,0.88)";
-  ctx.lineWidth = 4;
-  ctx.strokeText(text, 256, 64);
-
-  // Colored fill with glow
   ctx.shadowColor = hexStr;
-  ctx.shadowBlur = 14;
-  ctx.fillStyle = hexStr;
-  ctx.fillText(text, 256, 64);
+  ctx.shadowBlur = 10;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.fillText(text, 128, 128);
 
   return new THREE.CanvasTexture(canvas);
 }
@@ -60,7 +83,7 @@ class LyricSprite {
     this.sprite = new THREE.Sprite(this.material);
 
     // Start scaled to near-zero (pop in over 150ms)
-    this.sprite.scale.set(0.01, 0.01 * 0.25, 1);
+    this.sprite.scale.set(0.01, 0.01, 1);
 
     // Random scatter within 3 units of boat
     const angle = Math.random() * Math.PI * 2;
@@ -96,8 +119,8 @@ class LyricSprite {
 
     // Scale pop: 0 → 3.5 wide over first 150ms
     const scaleFactor = Math.min(this.age / 0.15, 1.0);
-    const w = 3.5 * scaleFactor;
-    this.sprite.scale.set(w, w * 0.25, 1);
+    const w = 2.5 * scaleFactor;
+    this.sprite.scale.set(w, w, 1);
 
     // Opacity: pop in 0→1 over 150ms, hold, fade out over last 1s
     if (this.age < 0.15) {
