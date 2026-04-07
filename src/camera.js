@@ -9,6 +9,7 @@ import * as THREE from "three";
 
 export class CameraController {
   constructor(engine) {
+    this.engine = engine;
     this.camera = engine.camera;
 
     // カメラの設定 (Bruno風の近い追従)
@@ -63,5 +64,10 @@ export class CameraController {
     );
 
     this.camera.lookAt(this.currentLook);
+  }
+
+  dispose() {
+    this.engine.removeUpdatable(this);
+    this.engine = null;
   }
 }

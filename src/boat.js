@@ -167,4 +167,11 @@ export class Boat {
     const v = this.body.velocity;
     return Math.sqrt(v.x * v.x + v.z * v.z);
   }
+
+  dispose() {
+    this.engine.removeUpdatable(this);
+    this.engine.scene.remove(this.mesh);
+    this.engine.world.removeBody(this.body);
+    this.engine = null;
+  }
 }
