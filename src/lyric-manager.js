@@ -52,7 +52,7 @@ function makeTextTexture(text, colorHex) {
   const fontFace = (s) =>
     `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   ctx.font = fontFace(fontSize);
-  while (ctx.measureText(text).width > 200 && fontSize > 24) {
+  while (ctx.measureText(text).width > 180 && fontSize > 24) {
     fontSize -= 2;
     ctx.font = fontFace(fontSize);
   }

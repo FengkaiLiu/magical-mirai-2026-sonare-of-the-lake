@@ -19,7 +19,7 @@ export class Boat {
     const shape = new CANNON.Box(new CANNON.Vec3(0.3, 0.12, 0.6));
     this.body = new CANNON.Body({
       mass: 5,
-      position: new CANNON.Vec3(0, 0.3, 0),
+      position: new CANNON.Vec3(0, 0.5, 0),
       material: engine.materials.boat,
       linearDamping: 0.6,
       angularDamping: 0.85,
@@ -131,7 +131,7 @@ export class Boat {
     const actions = this.controls.actions;
 
     // 浮力: 弹簧式，把船推向水面 (waterLevel = 0)
-    const waterLevel = 0.30;
+    const waterLevel = 0.50;
     const buoyancy = (waterLevel - this.body.position.y) * 30; // 弹簧力
     this.body.velocity.y += buoyancy * dt;
     this.body.velocity.y *= 0.9; // 水的阻尼

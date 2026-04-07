@@ -191,7 +191,7 @@ export class SongSelectScene {
       const spacing = 5.5;
       const totalWidth = (SONGS.length - 1) * spacing; // 27.5 for 6 songs
       const x = i * spacing - totalWidth / 2;           // −13.75 … +13.75
-      const z = 14;
+      const z = -14;
       this.cards.push(new SongCard(song, i, engine, x, z));
     });
 
