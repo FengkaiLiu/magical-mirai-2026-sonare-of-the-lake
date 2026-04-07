@@ -168,7 +168,7 @@ export class Environment {
 
   update(dt, elapsed) {
     // Sun bob
-    this.sun.position.y = 35 + Math.sin(elapsed * 0.15) * 0.05;
+    this.sun.position.y = 55 + Math.sin(elapsed * 0.15) * 0.05;
     this.halo.position.copy(this.sun.position);
 
     // Cloud linear drift (matches water shader direction)
