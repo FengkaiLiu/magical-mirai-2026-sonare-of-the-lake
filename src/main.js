@@ -56,7 +56,7 @@ const gltfLoader = new GLTFLoader();
 
 gltfLoader.load('/models/terrain.glb', (gltf) => {
   const terrain = gltf.scene;
-  terrain.position.y = 2;  // 往上提更多，让山体挡住视野
+  terrain.position.y = 12;  // 往上提更多，让山体挡住视野
   terrain.traverse(child => {
     if (child.isMesh) {
       child.material.roughness = 1.0;

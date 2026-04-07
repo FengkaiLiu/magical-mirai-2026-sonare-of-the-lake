@@ -146,9 +146,17 @@ export class Boat {
     const p = this.body.position;
     const quat = this.body.quaternion;
 
-    // 範囲制限
-    p.x = Math.max(-40, Math.min(40, p.x));
-    p.z = Math.max(-40, Math.min(40, p.z));
+    // 岸辺の境界 — 正方形ベースの段階的減速
+    const halfSize = Math.max(Math.abs(p.x), Math.abs(p.z));
+    
+    // 浅水域 (halfSize > 40): 徐々に減速開始
+    if (halfSize > 60) {
+      const ratio = (halfSize - 40) / 20;
+      const slowFactor = 1 - Math.min(ratio, 0.95);
+      this.body.velocity.x *= slowFactor;
+      this.body.velocity.z *= slowFactor;
+      
+    }
 
     // Three.js mesh を物理ボディに同期
     this.mesh.position.set(p.x, p.y, p.z);
