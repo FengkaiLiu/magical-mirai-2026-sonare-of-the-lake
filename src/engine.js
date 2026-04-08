@@ -1,9 +1,13 @@
 /**
  * ==========================================
- * Engine — Three.js + Cannon-es コアエンジン
+ * Engine — Three.js + Cannon-es コアエンジン v2
  * ==========================================
- * Render loop, physics step, resize handling.
- * Bruno Simon 風のアーキテクチャ。
+ * Changes:
+ *   - updatables: Set instead of Array (O(1) add/remove, no splice)
+ *   - Snapshot iteration: spreads Set to array once per phase so
+ *     objects added/removed mid-loop don't cause skips or double-updates
+ *   - Camera far plane 1000 → 500 (scene is 300×300, saves depth precision)
+ *   - dt clamp unchanged (0.05 = 20fps minimum)
  */
 
 import * as THREE from "three";
@@ -23,7 +27,7 @@ export class Engine {
     this.scene = new THREE.Scene();
 
     this.camera = new THREE.PerspectiveCamera(
-      50, window.innerWidth / window.innerHeight, 0.1, 1000
+      50, window.innerWidth / window.innerHeight, 0.1, 500
     );
 
     // === Cannon-es Physics ===
@@ -52,7 +56,7 @@ export class Engine {
       { friction: 0.8, restitution: 0.15 }
     ));
 
-    // 船 vs 水面: 中摩擦（水上を滑る感じ）
+    // 船 vs 水面: 中摩擦
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.boat, this.materials.water,
       { friction: 0.3, restitution: 0.05 }
@@ -72,8 +76,8 @@ export class Engine {
     this.clock = new THREE.Clock();
     this.elapsed = 0;
 
-    // === Objects to update each frame ===
-    this.updatables = [];
+    // === Updatables (Set for O(1) add/remove) ===
+    this._updatables = new Set();
 
     // === Resize ===
     window.addEventListener("resize", () => {
@@ -84,48 +88,47 @@ export class Engine {
   }
 
   /**
-   * Register an object with an update(dt, elapsed) method.
-   * Objects may also implement:
-   *   - preStep(dt, elapsed)  — called BEFORE physics (input, forces)
-   *   - update(dt, elapsed)   — called AFTER  physics (sync mesh, post-process)
+   * Register an object with update(dt, elapsed).
+   * May also implement preStep(dt, elapsed).
    */
   addUpdatable(obj) {
-    this.updatables.push(obj);
+    this._updatables.add(obj);
   }
 
   /**
-   * Unregister an updatable object.
+   * Unregister an updatable. Safe to call during iteration.
    */
   removeUpdatable(obj) {
-    const i = this.updatables.indexOf(obj);
-    if (i !== -1) this.updatables.splice(i, 1);
+    this._updatables.delete(obj);
   }
 
   /**
-   * Main game loop — call once, uses rAF internally.
-   *
-   * Loop order (Bruno Simon style):
-   *   1. preStep  — read input, apply forces/velocity
-   *   2. physics  — cannon-es world.step()
-   *   3. update   — sync Three.js meshes to physics bodies, post-process
-   *   4. render   — three.js draw
+   * Main game loop.
+   * Loop order:
+   *   1. preStep  — input, forces
+   *   2. physics  — cannon-es step
+   *   3. update   — sync meshes
+   *   4. render   — draw
    */
   start() {
     const tick = () => {
-      const dt = Math.min(this.clock.getDelta(), 0.05); // clamp to 50ms max
+      const dt = Math.min(this.clock.getDelta(), 0.05);
       this.elapsed = this.clock.getElapsedTime();
 
-      // 1. Pre-step: input & forces (before physics solves)
-      for (const obj of this.updatables) {
-        if (obj.preStep) obj.preStep(dt, this.elapsed);
+      // Snapshot: spread once so mid-loop add/remove is safe
+      const objs = [...this._updatables];
+
+      // 1. Pre-step
+      for (let i = 0; i < objs.length; i++) {
+        if (objs[i].preStep) objs[i].preStep(dt, this.elapsed);
       }
 
-      // 2. Physics step
+      // 2. Physics
       this.world.step(this.fixedTimeStep, dt, this.maxSubSteps);
 
-      // 3. Post-step: sync meshes, clamp positions, etc.
-      for (const obj of this.updatables) {
-        obj.update(dt, this.elapsed);
+      // 3. Post-step
+      for (let i = 0; i < objs.length; i++) {
+        objs[i].update(dt, this.elapsed);
       }
 
       // 4. Render

@@ -38,13 +38,16 @@ const engine = new Engine(mount);
 // === World objects ===
 const water = new Water(engine);
 water.setColors(song.theme.water, song.theme.deep);
+water.setSkyHorizon(song.theme.skyHorizon || 0xdceaf5);
 
 const env = new Environment(engine);
 env.setTheme(song.theme);
 
-const boat = new Boat(engine, new Controls());
+const controls = new Controls();
+const boat = new Boat(engine, controls);
 const cam = new CameraController(engine);
 const lyrics = new LyricManager(engine, boat);
+env.setBoat(boat); // particle spawning + shadow follow
 
 // Debug用グローバル参照
 window._boat = boat;
@@ -56,7 +59,7 @@ const gltfLoader = new GLTFLoader();
 
 gltfLoader.load('/models/terrain.glb', (gltf) => {
   const terrain = gltf.scene;
-  terrain.position.y = 12;  // 往上提更多，让山体挡住视野
+  terrain.position.y = 12;
   terrain.traverse(child => {
     if (child.isMesh) {
       child.material.roughness = 1.0;
@@ -65,25 +68,28 @@ gltfLoader.load('/models/terrain.glb', (gltf) => {
   });
   engine.scene.add(terrain);
   console.log('Terrain loaded!');
+}, undefined, (err) => {
+  console.warn('Terrain load failed (non-critical):', err.message || err);
 });
 
 gltfLoader.load('/models/boat.glb', (gltf) => {
   const boatModel = gltf.scene;
   boatModel.scale.set(0.3, 0.3, 0.3);
-  boatModel.rotation.y = Math.PI;  // 旋转180度，修正朝向
-  // 把模型挂到物理船的 mesh 上，这样会跟着动
+  boatModel.rotation.y = Math.PI;
   boat.mesh.add(boatModel);
-  // 隐藏占位方块
   boat.mesh.children.forEach(child => {
     if (child !== boatModel) child.visible = false;
   });
   console.log('Boat model loaded!');
+}, undefined, (err) => {
+  console.warn('Boat model load failed, using placeholder:', err.message || err);
 });
 
-// Camera follows boat
+// Camera follows boat + gamepad polling
 engine.addUpdatable({
   update() {
-    cam.setTarget(boat.getPosition());
+    controls.pollGamepad();
+    cam.setTarget(boat.getPosition(), boat.getHeading());
   }
 });
 
@@ -92,7 +98,11 @@ const player = new Player({
   app: { token: "xTTinPuYYoHYLhnk" },
   mediaElement: document.createElement("audio"),
 });
-let lastPos = 0;
+
+// Phrase cache: avoid calling findPhrase every frame when position
+// is still within the same phrase's time range
+let cachedPhrase = null;
+let cachedPhraseEnd = 0;
 
 player.addListener({
   onAppReady(app) {
@@ -112,10 +122,14 @@ player.addListener({
   onTimeUpdate(pos) {
     if (timeTxt) timeTxt.textContent = `${fmt(pos)} / ${fmt(player.video?.duration||0)}`;
 
-    const phrase = player.video.findPhrase(pos);
-    if (phrase) lyrics.addPhrase(phrase.text);
-
-    lastPos = pos;
+    // Cached phrase lookup: only call findPhrase when position exits current phrase
+    let phrase = cachedPhrase;
+    if (!phrase || pos < phrase.startTime || pos >= cachedPhraseEnd) {
+      phrase = player.video.findPhrase(pos);
+      cachedPhrase = phrase;
+      cachedPhraseEnd = phrase ? (phrase.startTime + phrase.duration) : 0;
+    }
+    if (phrase) lyrics.addPhrase(phrase);
   },
   onPlay()  { overlay.classList.add("hidden"); if(pauseBtn) pauseBtn.textContent="⏸"; },
   onPause() { if(pauseBtn) pauseBtn.textContent="▶"; },

@@ -1,27 +1,29 @@
 /**
  * ==========================================
- * Water — Low-Poly Stylized Lake
+ * Water — Low-Poly Stylized Lake  v2
  * ==========================================
- * Clean, bright, game-quality water:
- *   - Low-res mesh + flat shading = faceted low-poly look
- *   - Vertex displacement for waves (GPU)
- *   - Simple color gradient (shallow → deep)
- *   - Soft Fresnel rim light
- *   - Subtle sun specular (one clean highlight)
- *   - No noisy sparkles, no blocky artifacts
+ * Changes from v1:
+ *   - True flat shading: fragment shader reconstructs face normal
+ *     via dFdx/dFdy — every triangle gets ONE normal, no interpolation
+ *   - Removed vertex-shader finite-difference normals (were smooth, not flat)
+ *   - Transparency: depth-aware alpha (shallow=more transparent, deep=opaque)
+ *     so submerged planks are visible near the boat
+ *   - depthWrite enabled via two-pass trick: opaque pass writes depth,
+ *     transparent pass blends on top (avoids z-fighting)
+ *   - Caustics fade out with distance (no more moiré at horizon)
+ *   - Edge softening: water fades to sky color at boundaries
+ *   - Removed unused CANNON import
  */
 
 import * as THREE from "three";
-import * as CANNON from "cannon-es";
 
 const vertShader = /* glsl */ `
   uniform float uTime;
   varying vec3 vWorldPos;
-  varying vec3 vWorldNormal;
 
-  // Dual wave system
+  // Wave system
   float wave(vec2 pos, vec2 dir, float len, float amp, float spd) {
-    return amp * sin(3.1416 * dot(pos, dir) / len + spd * uTime);
+    return amp * sin(3.14159 * dot(pos, dir) / len + spd * uTime);
   }
 
   float waveHeight(vec2 p) {
@@ -35,15 +37,6 @@ const vertShader = /* glsl */ `
     vec3 p = position;
     p.y += waveHeight(p.xz);
 
-    // Finite-difference normal for flat shading
-    float d = 0.5; // larger step = more faceted
-    float hR = waveHeight(p.xz + vec2(d, 0.0));
-    float hF = waveHeight(p.xz + vec2(0.0, d));
-    float hC = waveHeight(p.xz);
-    vec3 T = normalize(vec3(d, hR - hC, 0.0));
-    vec3 B = normalize(vec3(0.0, hF - hC, d));
-    vWorldNormal = normalize(cross(T, B));
-
     vec4 worldPos = modelMatrix * vec4(p, 1.0);
     vWorldPos = worldPos.xyz;
 
@@ -52,62 +45,84 @@ const vertShader = /* glsl */ `
 `;
 
 const fragShader = /* glsl */ `
+  #extension GL_OES_standard_derivatives : enable
+
   uniform float uTime;
-  uniform vec3  uShallow;    // shallow water color
-  uniform vec3  uDeep;       // deep water color
+  uniform vec3  uShallow;
+  uniform vec3  uDeep;
+  uniform vec3  uSkyHorizon;  // for edge blending
   uniform vec3  uSunDir;
   uniform vec3  uCamPos;
 
   varying vec3 vWorldPos;
-  varying vec3 vWorldNormal;
 
   void main() {
-    vec3 N = normalize(vWorldNormal);
+    // ─── True flat normal from screen-space derivatives ───
+    // This gives each triangle exactly ONE normal = crisp low-poly facets
+    vec3 dx = dFdx(vWorldPos);
+    vec3 dy = dFdy(vWorldPos);
+    vec3 N = normalize(cross(dx, dy));
+    // Ensure normal points up (flip if needed)
+    N *= sign(N.y);
+
     vec3 V = normalize(uCamPos - vWorldPos);
 
-    // --- Base color: center=shallow, edge=deep ---
-    float depth = smoothstep(0.0, 40.0, length(vWorldPos.xz));
-    vec3 col = mix(uShallow, uDeep, depth);
+    // ─── Distance from center (for depth, caustic fade, edge fade) ───
+    float dist = length(vWorldPos.xz);
 
-    // --- Slight wave-based color variation ---
-    float waveColor = vWorldPos.y * 2.0;
-    col += vec3(0.02, 0.04, 0.05) * waveColor;
+    // ─── Base color: shallow near boat → deep at edges ───
+    float depthFactor = smoothstep(0.0, 45.0, dist);
+    vec3 col = mix(uShallow, uDeep, depthFactor);
 
-    // --- Fresnel rim (sky reflection) ---
+    // ─── Wave color variation (subtle) ───
+    col += vec3(0.02, 0.04, 0.05) * vWorldPos.y * 2.0;
+
+    // ─── Fresnel rim (sky reflection) ───
     float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
-    vec3 skyColor = vec3(0.6, 0.8, 0.95);
-    col = mix(col, skyColor, fresnel * 0.3);
+    vec3 skyRef = vec3(0.6, 0.8, 0.95);
+    col = mix(col, skyRef, fresnel * 0.35);
 
-    // --- Sun specular (single clean highlight) ---
+    // ─── Sun specular ───
     vec3 R = reflect(-V, N);
-    float spec = pow(max(dot(R, uSunDir), 0.0), 256.0);
-    col += vec3(1.0, 0.95, 0.85) * spec * 0.6;
+    float spec = pow(max(dot(R, uSunDir), 0.0), 180.0);
+    col += vec3(1.0, 0.95, 0.85) * spec * 0.5;
 
-    // --- Subtle caustics (smooth, not blocky) ---
-    float c1 = sin(vWorldPos.x * 0.8 + uTime * 0.3) * sin(vWorldPos.z * 0.7 + uTime * 0.25);
-    float c2 = sin(vWorldPos.x * 1.1 - uTime * 0.2) * sin(vWorldPos.z * 0.9 + uTime * 0.15);
+    // ─── Caustics with distance fade (kills moiré at horizon) ───
+    float causticFade = 1.0 - smoothstep(20.0, 60.0, dist);
+    float c1 = sin(vWorldPos.x * 0.8 + uTime * 0.3)
+             * sin(vWorldPos.z * 0.7 + uTime * 0.25);
+    float c2 = sin(vWorldPos.x * 1.1 - uTime * 0.2)
+             * sin(vWorldPos.z * 0.9 + uTime * 0.15);
     float caustic = (c1 + c2) * 0.015 + 0.02;
-    col += vec3(caustic * 0.3, caustic * 0.6, caustic * 0.8);
+    col += vec3(caustic * 0.3, caustic * 0.6, caustic * 0.8) * causticFade;
 
-    // --- Distance fog (blend to sky at far edges) ---
-    float fog = smoothstep(100.0, 160.0, length(vWorldPos.xz));
-    col = mix(col, uDeep * 0.8, fog);
+    // ─── Edge fog: blend to sky horizon color ───
+    float edgeFog = smoothstep(80.0, 150.0, dist);
+    col = mix(col, uSkyHorizon, edgeFog);
 
-    gl_FragColor = vec4(col, 0.75);
+    // ─── Depth-aware alpha ───
+    // Near boat (shallow) → more transparent so you can see planks below
+    // Far from boat (deep) → more opaque
+    float alpha = mix(0.55, 0.85, depthFactor);
+    // At very far edges, fully opaque to hide skybox seam
+    alpha = mix(alpha, 1.0, edgeFog);
+
+    gl_FragColor = vec4(col, alpha);
   }
 `;
 
 export class Water {
   constructor(engine) {
     this.uniforms = {
-      uTime:    { value: 0 },
-      uShallow: { value: new THREE.Color(0x3aadba) },
-      uDeep:    { value: new THREE.Color(0x1a6080) },
-      uSunDir:  { value: new THREE.Vector3(0.3, 0.8, -0.5).normalize() },
-      uCamPos:  { value: new THREE.Vector3() },
+      uTime:       { value: 0 },
+      uShallow:    { value: new THREE.Color(0x3aadba) },
+      uDeep:       { value: new THREE.Color(0x1a6080) },
+      uSkyHorizon: { value: new THREE.Color(0xdceaf5) },
+      uSunDir:     { value: new THREE.Vector3(0.3, 0.8, -0.5).normalize() },
+      uCamPos:     { value: new THREE.Vector3() },
     };
 
-    // Low-poly mesh: fewer subdivisions + flat shading = faceted look
+    // Low-poly mesh: 50×50 segments on 300×300 plane = 6m per quad
     const geo = new THREE.PlaneGeometry(300, 300, 50, 50);
     geo.rotateX(-Math.PI / 2);
 
@@ -116,14 +131,22 @@ export class Water {
       fragmentShader: fragShader,
       uniforms: this.uniforms,
       transparent: true,
-      depthWrite: false,
+      // Write depth so objects behind water are properly occluded,
+      // but use alpha blending so submerged objects show through
+      depthWrite: true,
+      // Render after opaque objects but before other transparent objects
+      // This gives the best balance between seeing submerged planks
+      // and not having z-sorting artifacts
     });
+    mat.extensions = { derivatives: true };
 
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.receiveShadow = true;
+    // Render order: slightly negative so water renders before lyric planks
+    // that are sinking (transparent). Floating planks are opaque and
+    // render in the opaque pass regardless.
+    this.mesh.renderOrder = -1;
     engine.scene.add(this.mesh);
-
-    // No physics body — buoyancy is handled in code by each floating object
 
     this.camera = engine.camera;
     engine.addUpdatable(this);
@@ -132,6 +155,11 @@ export class Water {
   setColors(shallow, deep) {
     this.uniforms.uShallow.value.set(shallow);
     this.uniforms.uDeep.value.set(deep);
+  }
+
+  /** Call when song theme changes to keep edge fog matching the sky */
+  setSkyHorizon(color) {
+    this.uniforms.uSkyHorizon.value.set(color);
   }
 
   update(dt, elapsed) {

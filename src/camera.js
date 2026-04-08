@@ -1,8 +1,14 @@
 /**
  * ==========================================
- * CameraController — スムーズ俯瞰追従
+ * CameraController — スムーズ追従カメラ
  * ==========================================
- * 固定角度で船を追いかける。急に動かず、ゆったりlerp。
+ * v2 — Actually smooth + follows boat heading
+ *
+ * Changes:
+ *   - smoothing lowered to 0.08 (was 1.0 = no smoothing)
+ *   - Camera offset rotates with boat heading (always behind the boat)
+ *   - Separate position/look smoothing speeds for cinematic feel
+ *   - Reusable Vector3 to avoid GC
  */
 
 import * as THREE from "three";
@@ -11,51 +17,85 @@ export class CameraController {
   constructor(engine) {
     this.camera = engine.camera;
 
-    // カメラの設定 (Bruno風の近い追従)
-    this.height = 8;      // 船からの高さ (was 14)
-    this.distance = 10;   // 船からの後方距離 (was 16)
-    this.lookAhead = 0;   // 注視点を船の前方にずらす量 (was 3)
+    // Camera offset from boat (in boat's local space)
+    this.height = 8;       // above boat
+    this.distance = 10;    // behind boat
+    this.lookAhead = 3;    // look target ahead of boat
 
-    // スムーズ追従
+    // Smoothing: lower = more cinematic lag (frame-rate independent)
+    this.posSmoothing = 0.06;   // camera position follows slowly
+    this.lookSmoothing = 0.10;  // look target follows a bit faster
+    this.headingSmoothing = 0.04; // heading angle follows slowest (prevents jitter on quick turns)
+
+    // State
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);
     this.currentLook = new THREE.Vector3(0, 0, 0);
-    this.smoothing = 1.0; // 小さい = ゆったり (フレームレート非依存)
+    this.currentHeading = 0; // smoothed Y rotation angle in radians
 
-    // 初期位置
+    // Reusable
+    this._goalPos = new THREE.Vector3();
+    this._goalLook = new THREE.Vector3();
+
+    // Initial position
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(0, 0, 0);
+
+    // Target reference (set externally)
+    this.targetPos = null;
+    this.targetHeading = 0; // radians, Y-axis rotation
 
     engine.addUpdatable(this);
   }
 
-  setTarget(boatPosition) {
-    this.targetPos = boatPosition;
+  /**
+   * Call each frame with boat position and heading.
+   * @param {THREE.Vector3} position - boat world position
+   * @param {number} heading - boat Y rotation in radians
+   */
+  setTarget(position, heading) {
+    this.targetPos = position;
+    this.targetHeading = heading ?? 0;
   }
 
   update(dt, elapsed) {
     if (!this.targetPos) return;
 
-    // 目標カメラ位置: 船の後方上空 (角度固定)
-    const goalPos = new THREE.Vector3(
-      this.targetPos.x,
+    // ─── Smooth heading (prevents camera whip on quick turns) ───
+    // Handle angle wrapping for smooth interpolation
+    let headingDiff = this.targetHeading - this.currentHeading;
+    // Wrap to [-PI, PI]
+    while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
+    while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
+
+    const headingAlpha = 1 - Math.pow(1 - this.headingSmoothing, dt * 60);
+    this.currentHeading += headingDiff * headingAlpha;
+
+    // ─── Goal camera position: behind + above boat, rotated by heading ───
+    const sinH = Math.sin(this.currentHeading);
+    const cosH = Math.cos(this.currentHeading);
+
+    // "Behind" in boat local space = +Z after rotation
+    this._goalPos.set(
+      this.targetPos.x + sinH * this.distance,
       this.targetPos.y + this.height,
-      this.targetPos.z + this.distance
+      this.targetPos.z + cosH * this.distance
     );
 
-    // 目標注視点: 船の少し前方
-    const goalLook = new THREE.Vector3(
-      this.targetPos.x,
+    // ─── Goal look-at: ahead of boat ───
+    this._goalLook.set(
+      this.targetPos.x - sinH * this.lookAhead,
       0,
-      this.targetPos.z - this.lookAhead
+      this.targetPos.z - cosH * this.lookAhead
     );
 
-    // フレームレート非依存のスムーズ補間
-    // 60fps でも 30fps でも同じ速度で追従する
-    const alpha = 1 - Math.pow(1 - this.smoothing, dt * 60);
-    this.currentPos.lerp(goalPos, alpha);
-    this.currentLook.lerp(goalLook, alpha);
+    // ─── Frame-rate independent lerp ───
+    const posAlpha = 1 - Math.pow(1 - this.posSmoothing, dt * 60);
+    const lookAlpha = 1 - Math.pow(1 - this.lookSmoothing, dt * 60);
 
-    // 微揺れ
+    this.currentPos.lerp(this._goalPos, posAlpha);
+    this.currentLook.lerp(this._goalLook, lookAlpha);
+
+    // ─── Apply + subtle sway ───
     this.camera.position.set(
       this.currentPos.x + Math.sin(elapsed * 0.08) * 0.04,
       this.currentPos.y + Math.sin(elapsed * 0.11) * 0.03,
