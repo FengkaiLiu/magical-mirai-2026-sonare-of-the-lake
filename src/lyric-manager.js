@@ -122,9 +122,12 @@ class LyricPlank {
       vel.y += buoyancy * dt;
       vel.y *= 0.85; // water damping
 
-      // Prevent capsizing
-      this.body.angularVelocity.x *= 0.9;
-      this.body.angularVelocity.z *= 0.9;
+      // 水平ロック
+      this.body.angularVelocity.x = 0;
+      this.body.angularVelocity.z = 0;
+      this.body.quaternion.x = 0;
+      this.body.quaternion.z = 0;
+      this.body.quaternion.normalize();
 
       // Slow down after landing (water drag)
       if (p.y < 0.2) {

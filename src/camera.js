@@ -14,12 +14,12 @@ export class CameraController {
     // カメラの設定 (Bruno風の近い追従)
     this.height = 8;      // 船からの高さ (was 14)
     this.distance = 10;   // 船からの後方距離 (was 16)
-    this.lookAhead = 2;   // 注視点を船の前方にずらす量 (was 3)
+    this.lookAhead = 0;   // 注視点を船の前方にずらす量 (was 3)
 
     // スムーズ追従
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);
     this.currentLook = new THREE.Vector3(0, 0, 0);
-    this.smoothing = 0.03; // 小さい = ゆったり (フレームレート非依存)
+    this.smoothing = 1.0; // 小さい = ゆったり (フレームレート非依存)
 
     // 初期位置
     this.camera.position.copy(this.currentPos);

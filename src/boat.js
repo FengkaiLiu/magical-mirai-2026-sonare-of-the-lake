@@ -135,8 +135,12 @@ export class Boat {
     }
 
     // 転覆防止 (X/Z回転を抑制するが完全にはロックしない)
-    this.body.angularVelocity.x *= 0.85;
-    this.body.angularVelocity.z *= 0.85;
+    // 転覆完全防止（水平ロック）
+    this.body.angularVelocity.x = 0;
+    this.body.angularVelocity.z = 0;
+    this.body.quaternion.x = 0;
+    this.body.quaternion.z = 0;
+    this.body.quaternion.normalize();
   }
 
   /**
@@ -146,16 +150,32 @@ export class Boat {
     const p = this.body.position;
     const quat = this.body.quaternion;
 
-    // 岸辺の境界 — 正方形ベースの段階的減速
-    const halfSize = Math.max(Math.abs(p.x), Math.abs(p.z));
-    
-    // 浅水域 (halfSize > 40): 徐々に減速開始
-    if (halfSize > 60) {
-      const ratio = (halfSize - 40) / 20;
-      const slowFactor = 1 - Math.min(ratio, 0.95);
-      this.body.velocity.x *= slowFactor;
-      this.body.velocity.z *= slowFactor;
-      
+    // 岸辺の境界 — 四方向独立
+    const bounds = {
+      xPos: { boundary: 60, slowStart: 50 },  // +X方向
+      xNeg: { boundary: 58, slowStart: 48 },  // -X方向
+      zPos: { boundary: 60, slowStart: 50 },  // +Z方向
+      zNeg: { boundary: 60, slowStart: 40 },  // -Z方向
+    };
+
+    // +X / -X
+    const bx = p.x > 0 ? bounds.xPos : bounds.xNeg;
+    const ax = Math.abs(p.x);
+    if (ax > bx.slowStart) {
+      const ratio = Math.min((ax - bx.slowStart) / (bx.boundary - bx.slowStart), 1);
+      this.body.velocity.x *= (1 - ratio * 0.3);
+      const pushBack = ratio * ratio * 60;
+      this.body.velocity.x -= Math.sign(p.x) * pushBack * dt;
+    }
+
+    // +Z / -Z
+    const bz = p.z > 0 ? bounds.zPos : bounds.zNeg;
+    const az = Math.abs(p.z);
+    if (az > bz.slowStart) {
+      const ratio = Math.min((az - bz.slowStart) / (bz.boundary - bz.slowStart), 1);
+      this.body.velocity.z *= (1 - ratio * 0.3);
+      const pushBack = ratio * ratio * 60;
+      this.body.velocity.z -= Math.sign(p.z) * pushBack * dt;
     }
 
     // Three.js mesh を物理ボディに同期
