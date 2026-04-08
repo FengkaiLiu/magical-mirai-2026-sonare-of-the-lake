@@ -23,6 +23,7 @@ export class Controls {
       backward: false,
       left: false,
       right: false,
+      sprint: false,
     };
 
     // === Keyboard ===
@@ -31,6 +32,7 @@ export class Controls {
       KeyS: "backward",   ArrowDown: "backward",
       KeyA: "left",       ArrowLeft: "left",
       KeyD: "right",      ArrowRight: "right",
+      ShiftLeft: "sprint", ShiftRight: "sprint",
     };
 
     this._keysHeld = new Set();

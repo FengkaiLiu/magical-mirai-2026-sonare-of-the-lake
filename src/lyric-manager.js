@@ -129,6 +129,7 @@ class LyricPlank {
       material: engine.materials.lyric,
       linearDamping: 0.6,
       angularDamping: 0.85,
+      allowSleep: false,  // MUST stay awake — sleeping bodies don't collide
     });
     this.body.addShape(sharedShape[sizeKey]);
     engine.world.addBody(this.body);
@@ -146,8 +147,8 @@ class LyricPlank {
     const vel = body.velocity;
 
     if (!this.sinking) {
-      // Buoyancy spring
-      _plankForce.set(0, 125 * (0.40 - p.y) - 20 * vel.y, 0);
+      // Buoyancy spring — waterLevel must match boat.js
+      _plankForce.set(0, 125 * (0.35 - p.y) - 20 * vel.y, 0);
       body.applyForce(_plankForce);
 
       // Restoring torque

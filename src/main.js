@@ -99,8 +99,7 @@ const player = new Player({
   mediaElement: document.createElement("audio"),
 });
 
-// Phrase cache: avoid calling findPhrase every frame when position
-// is still within the same phrase's time range
+// Phrase cache
 let cachedPhrase = null;
 let cachedPhraseEnd = 0;
 
@@ -122,13 +121,20 @@ player.addListener({
   onTimeUpdate(pos) {
     if (timeTxt) timeTxt.textContent = `${fmt(pos)} / ${fmt(player.video?.duration||0)}`;
 
-    // Cached phrase lookup: only call findPhrase when position exits current phrase
+    // When tab is hidden, audio keeps playing and onTimeUpdate keeps firing,
+    // but rAF is paused so physics/render don't run. If we addPhrase here,
+    // planks accumulate invisibly and all drop at once when tab returns.
+    // Fix: skip plank creation while hidden.
+    if (document.hidden) return;
+
+    // Cached phrase lookup
     let phrase = cachedPhrase;
     if (!phrase || pos < phrase.startTime || pos >= cachedPhraseEnd) {
       phrase = player.video.findPhrase(pos);
       cachedPhrase = phrase;
       cachedPhraseEnd = phrase ? (phrase.startTime + phrase.duration) : 0;
     }
+
     if (phrase) lyrics.addPhrase(phrase);
   },
   onPlay()  { overlay.classList.add("hidden"); if(pauseBtn) pauseBtn.textContent="⏸"; },
