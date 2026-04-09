@@ -1,12 +1,10 @@
 /**
  * ==========================================
- * Boat — Cannon-es 物理ボート v3
+ * Boat — Cannon-es 物理ボート v4
  * ==========================================
- * Fixes from v2:
- *   - forwardForce 25→60 to compensate linearDamping:0.6 eating force
- *   - Shift sprint (2x force)
- *   - waterLevel unified to 0.35 (was 0.30, planks were 0.40 → collision gap)
- *   - springK/dampingK tuned for stable float without oscillation
+ * Changes from v3:
+ *   - lanternPulse() method: beat triggers brightness spike + decay
+ *   - Dive edge pull for safe underwater transitions
  */
 
 import * as THREE from "three";
@@ -22,12 +20,12 @@ export class Boat {
     this.controls = controls;
 
     // === Cannon-es physics body ===
-    const shape = new CANNON.Box(new CANNON.Vec3(0.3, 0.12, 0.6));
+    const shape = new CANNON.Box(new CANNON.Vec3(0.3, 0.25, 0.6));
     this.body = new CANNON.Body({
       mass: 5,
       position: new CANNON.Vec3(0, 0.35, 0),
       material: engine.materials.boat,
-      linearDamping: 0.5,     // slightly lower for snappier feel
+      linearDamping: 0.5,
       angularDamping: 0.85,
       allowSleep: false,
     });
@@ -73,11 +71,16 @@ export class Boat {
     lantern.castShadow = true;
     this.mesh.add(lantern);
 
+    // Beat pulse state
+    this.lantern = lantern;
+    this._lanternBase = 0.8;
+    this._lanternPulse = 0;
+
     engine.scene.add(this.mesh);
 
     // === Movement params ===
-    this.forwardForce = 60;      // compensates linearDamping eating ~50% of force
-    this.sprintMultiplier = 1.8; // Shift key
+    this.forwardForce = 60;
+    this.sprintMultiplier = 1.8;
     this.turnTorque = 5;
 
     // === Reusable vectors ===
@@ -88,14 +91,17 @@ export class Boat {
     engine.addUpdatable(this);
   }
 
+  lanternPulse() {
+    this._lanternPulse = 1.0;
+  }
+
   preStep(dt, elapsed) {
     const actions = this.controls.actions;
     const body = this.body;
     const vel = body.velocity;
 
     // ─── Buoyancy ───
-    // Unified waterLevel: must match lyric-manager's waterLevel
-    const waterLevel = 0.35;
+    const waterLevel = this._diveWaterLevel ?? 0.35;
     const springK = 120;
     const dampK = 25;
     this._forceVec.set(0, springK * (waterLevel - body.position.y) - dampK * vel.y, 0);
@@ -108,7 +114,7 @@ export class Boat {
     fwd.y = 0;
     fwd.normalize();
 
-    // ─── Thrust (with Shift sprint) ───
+    // ─── Thrust ───
     const sprint = actions.sprint ? this.sprintMultiplier : 1.0;
 
     if (actions.forward) {
@@ -126,7 +132,7 @@ export class Boat {
     if (actions.left)  body.angularVelocity.y += this.turnTorque * dt;
     if (actions.right) body.angularVelocity.y -= this.turnTorque * dt;
 
-    // ─── Horizontal drag (frame-rate independent) ───
+    // ─── Horizontal drag ───
     const horizDamp = damp(0.98, dt);
     vel.x *= horizDamp;
     vel.z *= horizDamp;
@@ -140,7 +146,7 @@ export class Boat {
       vel.z *= ratio;
     }
 
-    // ─── Anti-capsize: restoring torque ───
+    // ─── Anti-capsize ───
     const q = body.quaternion;
     const restoreK = 50;
     body.angularVelocity.x += (-q.x * restoreK - body.angularVelocity.x * 5) * dt;
@@ -153,11 +159,35 @@ export class Boat {
     const vel = this.body.velocity;
 
     // ─── Soft boundary ───
+    const diving = (this._diveWaterLevel ?? 0.35) < 0;
+    const bScale = diving ? 0.5 : 1.0;
+
+    // Diving near edge: strong pull toward center
+    if (diving) {
+      const distFromCenter = Math.sqrt(p.x * p.x + p.z * p.z);
+      const safeRadius = 25;
+      if (distFromCenter > safeRadius) {
+        const urgency = Math.min((distFromCenter - safeRadius) / 10, 1);
+        const pullForce = urgency * 600;
+        this._forceVec.set(
+          -p.x / distFromCenter * pullForce,
+          0,
+          -p.z / distFromCenter * pullForce
+        );
+        this.body.applyForce(this._forceVec);
+        const dot = (vel.x * p.x + vel.z * p.z) / distFromCenter;
+        if (dot > 0) {
+          vel.x -= (p.x / distFromCenter) * dot * 0.8;
+          vel.z -= (p.z / distFromCenter) * dot * 0.8;
+        }
+      }
+    }
+
     const bounds = {
-      xPos: { boundary: 60, slowStart: 50 },
-      xNeg: { boundary: 58, slowStart: 48 },
-      zPos: { boundary: 60, slowStart: 50 },
-      zNeg: { boundary: 60, slowStart: 40 },
+      xPos: { boundary: 60 * bScale, slowStart: 50 * bScale },
+      xNeg: { boundary: 58 * bScale, slowStart: 48 * bScale },
+      zPos: { boundary: 60 * bScale, slowStart: 50 * bScale },
+      zNeg: { boundary: 60 * bScale, slowStart: 40 * bScale },
     };
 
     const bx = p.x > 0 ? bounds.xPos : bounds.xNeg;
@@ -182,6 +212,13 @@ export class Boat {
     this.mesh.position.set(p.x, p.y, p.z);
     this.mesh.quaternion.set(quat.x, quat.y, quat.z, quat.w);
     this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
+
+    // ─── Lantern beat pulse ───
+    if (this._lanternPulse > 0) {
+      this._lanternPulse *= Math.pow(0.03, dt);
+      if (this._lanternPulse < 0.01) this._lanternPulse = 0;
+    }
+    this.lantern.intensity = this._lanternBase + this._lanternPulse * 2.5;
   }
 
   getPosition() {

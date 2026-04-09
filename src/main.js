@@ -1,8 +1,9 @@
 /**
  * ==========================================
- * Sonare of the Lake — Main
- * Three.js + Cannon-es + TextAlive
+ * Sonare of the Lake — Main v2
  * ==========================================
+ * Changes: Beat detection + broadcast to water/boat/environment
+ * Fix: Phrase routing runs BEFORE beat detection so lyrics never break
  */
 
 import { Player } from "textalive-app-api";
@@ -13,6 +14,8 @@ import { Controls } from "./controls.js";
 import { CameraController } from "./camera.js";
 import { Environment } from "./environment.js";
 import { LyricManager } from "./lyric-manager.js";
+import { FishSchool } from "./fish-school.js";
+import { DiveController } from "./dive-controller.js";
 import { SONGS } from "./songs.js";
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
@@ -24,7 +27,6 @@ const pauseBtn   = document.getElementById("pause-btn");
 const timeTxt    = document.getElementById("time");
 const songSelect = document.getElementById("song-select");
 const songInfo   = document.getElementById("song-info");
-
 
 // === Song ===
 const params = new URLSearchParams(location.search);
@@ -47,12 +49,22 @@ const controls = new Controls();
 const boat = new Boat(engine, controls);
 const cam = new CameraController(engine);
 const lyrics = new LyricManager(engine, boat);
-env.setBoat(boat); // particle spawning + shadow follow
+const fishSchool = new FishSchool(engine, boat);
+const dive = new DiveController(engine, boat, cam, env, fishSchool, lyrics);
+env.setBoat(boat);
 
-// Debug用グローバル参照
+// Wire dive toggle
+controls.onDiveToggle = () => dive.toggle();
+
+// === Beat tracker ===
+let lastBeatIdx = -1;
+
+// Debug
 window._boat = boat;
 window._engine = engine;
 window._lyrics = lyrics;
+window._dive = dive;
+window._fishSchool = fishSchool;
 
 // === Load terrain & boat models ===
 const gltfLoader = new GLTFLoader();
@@ -115,19 +127,14 @@ player.addListener({
     playBtn.textContent = "▶ Play";
   },
   onTimerReady() {
-    // Auto-play: timer ready means player is fully initialized
     player.requestPlay();
   },
   onTimeUpdate(pos) {
     if (timeTxt) timeTxt.textContent = `${fmt(pos)} / ${fmt(player.video?.duration||0)}`;
 
-    // When tab is hidden, audio keeps playing and onTimeUpdate keeps firing,
-    // but rAF is paused so physics/render don't run. If we addPhrase here,
-    // planks accumulate invisibly and all drop at once when tab returns.
-    // Fix: skip plank creation while hidden.
     if (document.hidden) return;
 
-    // Cached phrase lookup
+    // ─── Phrase / lyric routing (FIRST — must never be skipped) ───
     let phrase = cachedPhrase;
     if (!phrase || pos < phrase.startTime || pos >= cachedPhraseEnd) {
       phrase = player.video.findPhrase(pos);
@@ -135,7 +142,27 @@ player.addListener({
       cachedPhraseEnd = phrase ? (phrase.startTime + phrase.duration) : 0;
     }
 
-    if (phrase) lyrics.addPhrase(phrase);
+    if (phrase) {
+      if (dive.isUnderwater) {
+        fishSchool.setPhrase(phrase.text || phrase);
+      } else {
+        fishSchool.clearPhrase();
+        lyrics.addPhrase(phrase);
+      }
+    }
+
+    // ─── Beat detection (AFTER phrase — safe to fail) ───
+    try {
+      const beat = player.video.findBeat(pos);
+      if (beat && beat.index !== lastBeatIdx) {
+        lastBeatIdx = beat.index;
+        water.pulse();
+        env.beatPulse();
+        boat.lanternPulse();
+      }
+    } catch (e) {
+      // Beat data not available for this song — skip silently
+    }
   },
   onPlay()  { overlay.classList.add("hidden"); if(pauseBtn) pauseBtn.textContent="⏸"; },
   onPause() { if(pauseBtn) pauseBtn.textContent="▶"; },

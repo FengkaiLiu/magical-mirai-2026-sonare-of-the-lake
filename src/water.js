@@ -1,25 +1,21 @@
 /**
  * ==========================================
- * Water — Low-Poly Stylized Lake  v5
+ * Water — Low-Poly Stylized Lake  v6
  * ==========================================
- * Compatibility: works on both WebGL1 and WebGL2.
- *
- * Key: do NOT write #extension in GLSL source.
- * Instead set ShaderMaterial extensions.derivatives = true.
- * Three.js will:
- *   - WebGL2: do nothing (dFdx/dFdy are built-in in GLSL 300 es)
- *   - WebGL1: inject #extension GL_OES_standard_derivatives : enable
- * This is the official Three.js way to handle it.
+ * Changes from v5:
+ *   - uBeatPulse uniform: beat triggers wave amplitude boost + decay
  */
 
 import * as THREE from "three";
 
 const vertShader = /* glsl */ `
   uniform float uTime;
+  uniform float uBeatPulse;
   varying vec3 vWorldPos;
 
   float wave(vec2 pos, vec2 dir, float len, float amp, float spd) {
-    return amp * sin(3.14159 * dot(pos, dir) / len + spd * uTime);
+    float beatAmp = 1.0 + uBeatPulse * 2.5;
+    return amp * beatAmp * sin(3.14159 * dot(pos, dir) / len + spd * uTime);
   }
 
   float waveHeight(vec2 p) {
@@ -38,9 +34,9 @@ const vertShader = /* glsl */ `
   }
 `;
 
-// NO #extension here — Three.js injects it when needed
 const fragShader = /* glsl */ `
   uniform float uTime;
+  uniform float uBeatPulse;
   uniform vec3  uShallow;
   uniform vec3  uDeep;
   uniform vec3  uSkyHorizon;
@@ -50,8 +46,6 @@ const fragShader = /* glsl */ `
   varying vec3 vWorldPos;
 
   void main() {
-    // Flat normal via screen-space derivatives
-    // Works in both WebGL1 (via extension) and WebGL2 (built-in)
     vec3 fdx = dFdx(vWorldPos);
     vec3 fdy = dFdy(vWorldPos);
     vec3 N = normalize(cross(fdx, fdy));
@@ -64,6 +58,9 @@ const fragShader = /* glsl */ `
     float depthFactor = smoothstep(0.0, 45.0, dist);
     vec3 col = mix(uShallow, uDeep, depthFactor);
     col += vec3(0.02, 0.04, 0.05) * vWorldPos.y * 2.0;
+
+    // Beat: brighten water slightly on pulse
+    col += vec3(0.05, 0.08, 0.12) * uBeatPulse;
 
     float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
     col = mix(col, vec3(0.6, 0.8, 0.95), fresnel * 0.35);
@@ -92,6 +89,7 @@ export class Water {
   constructor(engine) {
     this.uniforms = {
       uTime:       { value: 0 },
+      uBeatPulse:  { value: 0 },
       uShallow:    { value: new THREE.Color(0x3aadba) },
       uDeep:       { value: new THREE.Color(0x1a6080) },
       uSkyHorizon: { value: new THREE.Color(0xdceaf5) },
@@ -111,8 +109,6 @@ export class Water {
       side: THREE.DoubleSide,
     });
 
-    // The correct Three.js way: tell it we need derivatives.
-    // It will handle WebGL1 vs WebGL2 differences automatically.
     mat.extensions.derivatives = true;
 
     this.mesh = new THREE.Mesh(geo, mat);
@@ -132,8 +128,18 @@ export class Water {
     this.uniforms.uSkyHorizon.value.set(color);
   }
 
+  pulse() {
+    this.uniforms.uBeatPulse.value = 1.0;
+  }
+
   update(dt, elapsed) {
     this.uniforms.uTime.value = elapsed;
     this.uniforms.uCamPos.value.copy(this.camera.position);
+
+    // Beat pulse decay
+    if (this.uniforms.uBeatPulse.value > 0) {
+      this.uniforms.uBeatPulse.value *= Math.pow(0.05, dt);
+      if (this.uniforms.uBeatPulse.value < 0.01) this.uniforms.uBeatPulse.value = 0;
+    }
   }
 }
