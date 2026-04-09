@@ -1,21 +1,12 @@
 /**
  * ==========================================
- * CameraController v8 — Unified smooth blend
+ * CameraController v9 — Unified smooth blend
  * ==========================================
- * ONE camera system. No mode switching.
- * 
- * Every frame computes a surface goal and an underwater goal,
- * then blends them with the same easing curve.
- * Both goals are in world-space XYZ (not polar).
- * The currentPos/currentLook lerps toward the blended goal.
- * 
- * This means the camera path between surface and underwater
- * is always a smooth curve — no jumps, no clamps, no seams.
- * 
- * Underwater goal uses over-the-shoulder:
- *   school_center → boat → camera (all in a line)
- * Camera Y for underwater is set to boat.y + small offset,
- * which naturally goes below water as the boat sinks.
+ * v9 changes from v8:
+ *   - Underwater camera Y follows boat.y (not hardcoded -0.5)
+ *   - Transition smoothing boosted mid-dive (less sluggish)
+ *   - Removed unused _diveLookTarget
+ *   - Surface camera unchanged: fixed +Z god-mode view
  */
 
 import * as THREE from "three";
@@ -26,8 +17,8 @@ export class CameraController {
   constructor(engine) {
     this.camera = engine.camera;
 
-    // Smoothing — one speed for everything
-    this.smoothing = 0.03;
+    // Smoothing base (boosted during transitions)
+    this.smoothingBase = 0.03;
 
     // State
     this.currentPos = new THREE.Vector3(0, 8, 10);
@@ -46,14 +37,16 @@ export class CameraController {
     this.camera.lookAt(0, 0, 0);
 
     this.targetPos = null;
+    this._boatHeading = 0;
+    this._smoothHeading = 0;
     this._diveBlend = 0;
-    this._diveLookTarget = null;
 
     engine.addUpdatable(this);
   }
 
-  setTarget(position) {
+  setTarget(position, heading) {
     this.targetPos = position;
+    this._boatHeading = heading ?? 0;
   }
 
   update(dt, elapsed) {
@@ -63,31 +56,30 @@ export class CameraController {
     const t = this._diveBlend;
     const ease = t * t * (3 - 2 * t);
 
-    // ─── Surface goal: fixed +Z behind, high above ───
+    // ─── Surface goal: fixed +Z behind, high above (god-mode) ───
     this._surfPos.set(boat.x, boat.y + 8, boat.z + 10);
     this._surfLook.set(boat.x, 0, boat.z - 2);
 
-    // ─── Underwater goal: over-the-shoulder ───
-    if (this._diveLookTarget) {
-      const sc = this._diveLookTarget;
+    // ─── Underwater goal: above+behind boat, looking at school center ───
+    // Composition: boat at bottom of screen, lyrics at top
+    {
+      let headingDiff = this._boatHeading - this._smoothHeading;
+      while (headingDiff > Math.PI) headingDiff -= Math.PI * 2;
+      while (headingDiff < -Math.PI) headingDiff += Math.PI * 2;
+      const headingAlpha = 1 - Math.pow(0.92, dt * 60);
+      this._smoothHeading += headingDiff * headingAlpha;
 
-      // Direction from school center to boat on XZ
-      this._dir.set(boat.x - sc.x, 0, boat.z - sc.z);
-      const len = this._dir.length();
-      if (len > 0.1) {
-        this._dir.divideScalar(len);
-      } else {
-        this._dir.set(0, 0, 1); // fallback
-      }
+      const behindX = Math.sin(this._smoothHeading);
+      const behindZ = Math.cos(this._smoothHeading);
 
-      // Camera behind boat along school→boat line
+      // Camera: behind boat + above → boat appears at bottom of frame
       this._uwPos.set(
-        boat.x + this._dir.x * 12,
-        boat.y + 2,               // slightly above boat, goes underwater with boat
-        boat.z + this._dir.z * 12
+        boat.x + behindX * 8,
+        boat.y + 4,           // 4 units above boat
+        boat.z + behindZ * 8
       );
 
-      // Clamp camera XZ to map radius
+      // Clamp to map
       const r2 = this._uwPos.x * this._uwPos.x + this._uwPos.z * this._uwPos.z;
       if (r2 > CAM_MAX_RADIUS * CAM_MAX_RADIUS) {
         const s = CAM_MAX_RADIUS / Math.sqrt(r2);
@@ -95,23 +87,19 @@ export class CameraController {
         this._uwPos.z *= s;
       }
 
-      // LookAt: toward school center, slightly above
-      this._uwLook.set(
-        THREE.MathUtils.lerp(boat.x, sc.x, 0.65),
-        sc.y + 1.5,
-        THREE.MathUtils.lerp(boat.z, sc.z, 0.65)
-      );
-    } else {
-      this._uwPos.copy(this._surfPos);
-      this._uwLook.copy(this._surfLook);
+      // Look at school center → lyrics appear at top of frame
+      this._uwLook.set(0, -5, 0);
     }
 
     // ─── Blend surface ↔ underwater ───
     this._goalPos.lerpVectors(this._surfPos, this._uwPos, ease);
     this._goalLook.lerpVectors(this._surfLook, this._uwLook, ease);
 
-    // ─── Single smooth lerp toward goal ───
-    const alpha = 1 - Math.pow(1 - this.smoothing, dt * 60);
+    // ─── Smoothing: boost during transition for snappier dive/surface ───
+    const transitionUrgency = 1 - Math.abs(t * 2 - 1); // peaks at t=0.5
+    const smoothing = this.smoothingBase + transitionUrgency * 0.06;
+    const alpha = 1 - Math.pow(1 - smoothing, dt * 60);
+
     this.currentPos.lerp(this._goalPos, alpha);
     this.currentLook.lerp(this._goalLook, alpha);
 

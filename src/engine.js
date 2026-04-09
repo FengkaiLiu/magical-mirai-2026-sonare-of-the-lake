@@ -70,7 +70,7 @@ export class Engine {
 
     // Physics timestep
     this.fixedTimeStep = 1 / 60;
-    this.maxSubSteps = 3;
+    this.maxSubSteps = 5;
 
     // === Clock ===
     this.clock = new THREE.Clock();

@@ -197,7 +197,7 @@ export class Environment {
   // ─── Particles ─────────────────────────────────────────
 
   _initParticles(scene) {
-    this.particleCount = 80;
+    this.particleCount = 160;
     const count = this.particleCount;
 
     const positions = new Float32Array(count * 3);

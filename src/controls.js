@@ -42,13 +42,8 @@ export class Controls {
 
     this._keysHeld = new Set();
 
-    // Space is special — it's a toggle, not hold
+    // Space is reserved (no manual dive — chorus auto-dive only)
     this._onKeyDown = (e) => {
-      if (e.code === "Space") {
-        if (this.onDiveToggle) this.onDiveToggle();
-        e.preventDefault();
-        return;
-      }
       const action = this._keyMap[e.code];
       if (action) {
         this._keysHeld.add(e.code);
@@ -139,36 +134,6 @@ export class Controls {
     this._joyBase.appendChild(this._joyThumb);
     this._joyContainer.appendChild(this._joyBase);
     document.body.appendChild(this._joyContainer);
-
-    // ─── Dive button (right side, touch only) ───
-    if (isTouchDevice) {
-      this._diveBtn = document.createElement("div");
-      Object.assign(this._diveBtn.style, {
-        position: "fixed",
-        right: "20px",
-        bottom: "20px",
-        width: "60px",
-        height: "60px",
-        borderRadius: "50%",
-        border: "2px solid rgba(100,200,255,0.4)",
-        background: "rgba(100,200,255,0.12)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontSize: "22px",
-        color: "rgba(100,200,255,0.7)",
-        zIndex: "60",
-        userSelect: "none",
-        WebkitUserSelect: "none",
-        cursor: "pointer",
-      });
-      this._diveBtn.textContent = "🌊";
-      this._diveBtn.addEventListener("touchstart", (e) => {
-        e.preventDefault();
-        if (this.onDiveToggle) this.onDiveToggle();
-      }, { passive: false });
-      document.body.appendChild(this._diveBtn);
-    }
   }
 
   _bindTouch() {

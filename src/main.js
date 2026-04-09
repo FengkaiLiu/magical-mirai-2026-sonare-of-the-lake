@@ -16,6 +16,7 @@ import { Environment } from "./environment.js";
 import { LyricManager } from "./lyric-manager.js";
 import { FishSchool } from "./fish-school.js";
 import { DiveController } from "./dive-controller.js";
+import { WakeTrail } from "./wake-trail.js";
 import { SONGS } from "./songs.js";
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
@@ -51,6 +52,8 @@ const cam = new CameraController(engine);
 const lyrics = new LyricManager(engine, boat);
 const fishSchool = new FishSchool(engine, boat);
 const dive = new DiveController(engine, boat, cam, env, fishSchool, lyrics);
+const wake = new WakeTrail(engine);
+wake.setBoat(boat);
 env.setBoat(boat);
 
 // Wire dive toggle
@@ -58,6 +61,23 @@ controls.onDiveToggle = () => dive.toggle();
 
 // === Beat tracker ===
 let lastBeatIdx = -1;
+
+// === Chorus auto-dive ===
+let inChorus = false;
+
+// === Beat debug indicator (remove after confirming beats work) ===
+const beatDot = document.createElement("div");
+Object.assign(beatDot.style, {
+  position: "fixed", top: "10px", right: "10px", width: "20px", height: "20px",
+  borderRadius: "50%", background: "red", opacity: "0", zIndex: "999",
+  transition: "opacity 0.05s", pointerEvents: "none",
+});
+document.body.appendChild(beatDot);
+function flashBeatDot(strong) {
+  beatDot.style.background = strong ? "red" : "orange";
+  beatDot.style.opacity = "1";
+  setTimeout(() => { beatDot.style.opacity = "0"; }, 100);
+}
 
 // Debug
 window._boat = boat;
@@ -85,13 +105,7 @@ gltfLoader.load('/models/terrain.glb', (gltf) => {
 });
 
 gltfLoader.load('/models/boat.glb', (gltf) => {
-  const boatModel = gltf.scene;
-  boatModel.scale.set(0.3, 0.3, 0.3);
-  boatModel.rotation.y = Math.PI;
-  boat.mesh.add(boatModel);
-  boat.mesh.children.forEach(child => {
-    if (child !== boatModel) child.visible = false;
-  });
+  boat.setModel(gltf.scene);
   console.log('Boat model loaded!');
 }, undefined, (err) => {
   console.warn('Boat model load failed, using placeholder:', err.message || err);
@@ -153,15 +167,53 @@ player.addListener({
 
     // ─── Beat detection (AFTER phrase — safe to fail) ───
     try {
-      const beat = player.video.findBeat(pos);
+      const beat = player.findBeat(pos);
       if (beat && beat.index !== lastBeatIdx) {
         lastBeatIdx = beat.index;
-        water.pulse();
-        env.beatPulse();
-        boat.lanternPulse();
+        const strong = (beat.index % 4 === 0);
+
+        // Particles respond to every beat
+        env.beatPulse(strong ? 1.0 : 0.4);
+
+        // Water + lantern: ONLY on downbeat (surge + breathe)
+        if (strong) {
+          water.pulse(1.0);
+          boat.lanternPulse(1.0);
+        }
+
+        flashBeatDot(strong);
       }
     } catch (e) {
-      // Beat data not available for this song — skip silently
+      if (!window._beatErrorLogged) {
+        console.warn("Beat detection error:", e.message || e);
+        window._beatErrorLogged = true;
+      }
+    }
+
+    // ─── Chorus auto-dive (manual segments > findChorus fallback) ───
+    {
+      const segments = song.diveSegments;
+      let shouldDive = false;
+
+      if (segments && segments.length > 0) {
+        // Manual segments defined — use them
+        for (const seg of segments) {
+          if (pos >= seg.start && pos < seg.end) { shouldDive = true; break; }
+        }
+      } else {
+        // Fallback to TextAlive chorus detection
+        try {
+          shouldDive = !!player.findChorus(pos);
+        } catch (e) { /* no chorus data */ }
+      }
+
+      if (shouldDive && !inChorus) {
+        inChorus = true;
+        dive.forceDiveStart();
+      } else if (!shouldDive && inChorus) {
+        inChorus = false;
+        dive.forceDiveEnd();
+      }
     }
   },
   onPlay()  { overlay.classList.add("hidden"); if(pauseBtn) pauseBtn.textContent="⏸"; },

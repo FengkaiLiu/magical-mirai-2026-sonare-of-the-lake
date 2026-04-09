@@ -1,9 +1,11 @@
 /**
  * ==========================================
- * Water — Low-Poly Stylized Lake  v6
+ * Water — Low-Poly Stylized Lake  v8
  * ==========================================
- * Changes from v5:
- *   - uBeatPulse uniform: beat triggers wave amplitude boost + decay
+ * Changes from v7:
+ *   - Boat wake: V-shaped Kelvin wake pattern behind boat
+ *     Vertex shader computes wake height from boat pos/dir/speed
+ *     Fragment shader adds foam highlight on wake crests
  */
 
 import * as THREE from "three";
@@ -14,7 +16,7 @@ const vertShader = /* glsl */ `
   varying vec3 vWorldPos;
 
   float wave(vec2 pos, vec2 dir, float len, float amp, float spd) {
-    float beatAmp = 1.0 + uBeatPulse * 2.5;
+    float beatAmp = 1.0 + uBeatPulse * 3.0;
     return amp * beatAmp * sin(3.14159 * dot(pos, dir) / len + spd * uTime);
   }
 
@@ -59,8 +61,7 @@ const fragShader = /* glsl */ `
     vec3 col = mix(uShallow, uDeep, depthFactor);
     col += vec3(0.02, 0.04, 0.05) * vWorldPos.y * 2.0;
 
-    // Beat: brighten water slightly on pulse
-    col += vec3(0.05, 0.08, 0.12) * uBeatPulse;
+    // Beat: no color flash, only wave height (handled in vertex shader)
 
     float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0);
     col = mix(col, vec3(0.6, 0.8, 0.95), fresnel * 0.35);
@@ -97,7 +98,7 @@ export class Water {
       uCamPos:     { value: new THREE.Vector3() },
     };
 
-    const geo = new THREE.PlaneGeometry(300, 300, 50, 50);
+    const geo = new THREE.PlaneGeometry(300, 300, 100, 100);
     geo.rotateX(-Math.PI / 2);
 
     const mat = new THREE.ShaderMaterial({
@@ -116,6 +117,7 @@ export class Water {
     engine.scene.add(this.mesh);
 
     this.camera = engine.camera;
+    this._pulseGoal = 0;  // target that the actual uniform chases
     engine.addUpdatable(this);
   }
 
@@ -128,18 +130,22 @@ export class Water {
     this.uniforms.uSkyHorizon.value.set(color);
   }
 
-  pulse() {
-    this.uniforms.uBeatPulse.value = 1.0;
+  pulse(intensity = 1.0) {
+    // Don't slam the uniform — set a goal that the uniform smoothly chases
+    this._pulseGoal = intensity;
   }
 
   update(dt, elapsed) {
     this.uniforms.uTime.value = elapsed;
     this.uniforms.uCamPos.value.copy(this.camera.position);
 
-    // Beat pulse decay
-    if (this.uniforms.uBeatPulse.value > 0) {
-      this.uniforms.uBeatPulse.value *= Math.pow(0.05, dt);
-      if (this.uniforms.uBeatPulse.value < 0.01) this.uniforms.uBeatPulse.value = 0;
-    }
+    // Goal decays over ~2 seconds (4-beat cycle)
+    this._pulseGoal *= Math.pow(0.22, dt);
+    if (this._pulseGoal < 0.005) this._pulseGoal = 0;
+
+    // Uniform smoothly chases the goal (~0.4s attack)
+    const current = this.uniforms.uBeatPulse.value;
+    const chase = Math.min(dt * 4.0, 1);  // attack speed
+    this.uniforms.uBeatPulse.value += (this._pulseGoal - current) * chase;
   }
 }

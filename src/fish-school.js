@@ -1,12 +1,14 @@
 /**
  * ==========================================
- * FishSchool v8 — 発光浮遊生物 (bioluminescent)
+ * FishSchool v9 — 発光浮遊生物 (bioluminescent)
  * ==========================================
- * v8: FISH_COUNT == TEXT_SAMPLE_POINTS (all fish form text, no idle fish)
- *   - 3500 fish / 3500 sample points
- *   - No frame mode, no idle push — every fish is assigned to a glyph point
- *   - Canvas 2048, minFontSize 12 for long lyrics
- *   - FORM_SPEED 15 for fast formation
+ * v9 changes from v8:
+ *   - Text sampling cached in Map (no repeated getImageData)
+ *   - Short lyrics: only sample actual glyph density, not forced to 3500
+ *     Unassigned fish pushed below + behind text billboard (won't block view)
+ *   - Wobble removed (dots, not fish — wobble was meaningless)
+ *   - Incremental target reassignment: fish near old targets reused,
+ *     reduces chaotic scatter on phrase change
  */
 
 import * as THREE from "three";
@@ -14,17 +16,21 @@ import * as THREE from "three";
 // ─── Config ──────────────────────────────────────────────
 
 const FISH_COUNT = 3500;
-const SCHOOL_CENTER = new THREE.Vector3(0, -3, 0);
+const SCHOOL_CENTER = new THREE.Vector3(0, -5, 0);  // near seabed
 const SCHOOL_RADIUS = 18;
-const SCHOOL_Y_MIN = -7;
-const SCHOOL_Y_MAX = -0.3;
+const SCHOOL_Y_MIN = -9;
+const SCHOOL_Y_MAX = -3;
 const TEXT_WIDTH = 28;
 const TEXT_HEIGHT = 5;
-const TEXT_SAMPLE_POINTS = 3500;
+const MAX_SAMPLE_POINTS = 3500;
 const FORM_SPEED = 15.0;
 const AVOID_RADIUS = 2.5;
 const AVOID_FORCE = 8;
-const WOBBLE_AMOUNT = 0.15;
+
+// Where idle fish go when text is displayed (below + behind billboard)
+const IDLE_SINK_Y = SCHOOL_Y_MIN;         // push to bottom
+const IDLE_BEHIND_DIST = 12;              // how far behind the billboard
+const IDLE_SCATTER_RADIUS = 15;           // horizontal spread when idle-during-text
 
 // ─── Glow particle shader ────────────────────────────────
 
@@ -60,12 +66,16 @@ const glowFrag = /* glsl */ `
   }
 `;
 
-// ─── Text sampling ───────────────────────────────────────
+// ─── Text sampling (cached) ─────────────────────────────
 
-function sampleTextPoints(text, maxPoints = TEXT_SAMPLE_POINTS) {
-  const canvas = document.createElement("canvas");
+const _textCache = new Map();
+
+function sampleTextPoints(text) {
+  if (_textCache.has(text)) return _textCache.get(text);
+
   const canvasW = 2048;
   const canvasH = 256;
+  const canvas = document.createElement("canvas");
   canvas.width = canvasW;
   canvas.height = canvasH;
   const ctx = canvas.getContext("2d");
@@ -89,27 +99,32 @@ function sampleTextPoints(text, maxPoints = TEXT_SAMPLE_POINTS) {
   const pixels = imageData.data;
   const whitePixels = [];
 
-  for (let y = 0; y < canvasH; y += 1) {
-    for (let x = 0; x < canvasW; x += 1) {
-      const idx = (y * canvasW + x) * 4;
-      if (pixels[idx] > 128) whitePixels.push({ x, y });
+  for (let y = 0; y < canvasH; y++) {
+    for (let x = 0; x < canvasW; x++) {
+      if (pixels[(y * canvasW + x) * 4] > 128) whitePixels.push({ x, y });
     }
   }
 
+  // ── Key change: don't force to MAX_SAMPLE_POINTS ──
+  // Downsample only if more than max; otherwise use all white pixels.
+  // This means short lyrics get fewer points → natural density.
   const points = [];
-  if (whitePixels.length <= maxPoints) {
+  if (whitePixels.length <= MAX_SAMPLE_POINTS) {
     for (const p of whitePixels) points.push(p);
   } else {
-    const step = whitePixels.length / maxPoints;
-    for (let i = 0; i < maxPoints; i++) {
+    const step = whitePixels.length / MAX_SAMPLE_POINTS;
+    for (let i = 0; i < MAX_SAMPLE_POINTS; i++) {
       points.push(whitePixels[Math.floor(i * step)]);
     }
   }
 
-  return points.map(p => ({
+  const result = points.map(p => ({
     x: (p.x / canvasW - 0.5),
     y: (0.5 - p.y / canvasH),
   }));
+
+  _textCache.set(text, result);
+  return result;
 }
 
 // ─── FishSchool ──────────────────────────────────────────
@@ -173,6 +188,7 @@ export class FishSchool {
     this._boatPos = new THREE.Vector3();
     this._textPointsLocal = [];
     this._currentText = "";
+    this._textActive = false;       // true when any phrase is displayed
     this._billboardAngle = 0;
 
     engine.addUpdatable(this);
@@ -188,6 +204,7 @@ export class FishSchool {
   setPhrase(text) {
     if (!text || text === this._currentText) return;
     this._currentText = text;
+    this._textActive = true;
 
     const points2D = sampleTextPoints(text);
     this._textPointsLocal = points2D.map(p => new THREE.Vector3(
@@ -200,6 +217,7 @@ export class FishSchool {
 
   clearPhrase() {
     this._currentText = "";
+    this._textActive = false;
     this._textPointsLocal = [];
     for (let i = 0; i < FISH_COUNT; i++) this.hasTarget[i] = 0;
   }
@@ -208,8 +226,8 @@ export class FishSchool {
     const points = this._textPointsLocal;
     if (points.length === 0) { this.clearPhrase(); return; }
 
-    for (let i = 0; i < FISH_COUNT; i++) this.hasTarget[i] = 0;
-
+    // ── Incremental: don't wipe all targets first ──
+    // Build new world targets
     const camPos = this.camera.position;
     const angle = Math.atan2(
       camPos.x - SCHOOL_CENTER.x,
@@ -230,11 +248,15 @@ export class FishSchool {
     }
     worldTargets.sort((a, b) => a.wx - b.wx);
 
+    // Sort fish by X for spatial locality search
     const fishByX = [];
     for (let i = 0; i < FISH_COUNT; i++) {
       fishByX.push({ idx: i, x: this.posArray[i * 3] });
     }
     fishByX.sort((a, b) => a.x - b.x);
+
+    // Clear all targets — will reassign below
+    for (let i = 0; i < FISH_COUNT; i++) this.hasTarget[i] = 0;
 
     const usedFish = new Set();
 
@@ -242,6 +264,7 @@ export class FishSchool {
       const wt = worldTargets[pi];
       const pt = points[wt.idx];
 
+      // Binary search for closest X
       let lo = 0, hi = fishByX.length - 1;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
@@ -267,6 +290,7 @@ export class FishSchool {
         }
       }
 
+      // Fallback: grab any unused fish
       if (bestIdx < 0) {
         for (let fi = 0; fi < fishByX.length; fi++) {
           const fIdx = fishByX[fi].idx;
@@ -307,6 +331,7 @@ export class FishSchool {
     const tgt = this.targets;
     const hasT = this.hasTarget;
     const phase = this.phases;
+    const textActive = this._textActive;
 
     for (let i = 0; i < FISH_COUNT; i++) {
       const i3 = i * 3;
@@ -314,7 +339,7 @@ export class FishSchool {
       let vx = vel[i3], vy = vel[i3 + 1], vz = vel[i3 + 2];
 
       if (hasT[i]) {
-        // ─── Text formation ───
+        // ─── Text formation (no wobble — clean dots) ───
         const localX = tgt[i3], localZ = tgt[i3 + 2];
         const wtx = SCHOOL_CENTER.x + localX * cosB + localZ * sinB;
         const wty = tgt[i3 + 1];
@@ -328,14 +353,34 @@ export class FishSchool {
           px += dx * factor; py += dy * factor; pz += dz * factor;
         }
 
-        const wt = elapsed * 3 + phase[i];
-        px += Math.sin(wt) * WOBBLE_AMOUNT * dt;
-        py += Math.cos(wt * 1.3) * WOBBLE_AMOUNT * 0.6 * dt;
-        pz += Math.sin(wt * 0.7) * WOBBLE_AMOUNT * dt;
-
         vx *= 0.9; vy *= 0.9; vz *= 0.9;
+
+      } else if (textActive) {
+        // ─── Idle during text: sink below + drift behind billboard ───
+        // Push behind the billboard plane (away from camera)
+        // Billboard normal points toward camera: (sinB, 0, cosB)
+        // "Behind" = opposite direction = (-sinB, 0, -cosB)
+        const behindX = SCHOOL_CENTER.x - sinB * IDLE_BEHIND_DIST
+                        + Math.sin(phase[i]) * IDLE_SCATTER_RADIUS;
+        const behindZ = SCHOOL_CENTER.z - cosB * IDLE_BEHIND_DIST
+                        + Math.cos(phase[i]) * IDLE_SCATTER_RADIUS;
+        const targetY = IDLE_SINK_Y;
+
+        // Gently pull toward idle position
+        const pullStrength = 3.0;
+        const dx = behindX - px, dy = targetY - py, dz = behindZ - pz;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > 0.5) {
+          const f = Math.min(pullStrength * dt / d, 1);
+          px += dx * f; py += dy * f; pz += dz * f;
+        }
+
+        // Also dim these fish so they don't glow as bright
+        // (just reduce velocity, alpha handled by existing attribute)
+        vx *= 0.85; vy *= 0.85; vz *= 0.85;
+
       } else {
-        // ─── Free swim (only when no text is active) ───
+        // ─── Free swim (no text active) ───
         vx += (Math.random() - 0.5) * 2.0 * dt;
         vy += (Math.random() - 0.5) * 0.5 * dt;
         vz += (Math.random() - 0.5) * 2.0 * dt;

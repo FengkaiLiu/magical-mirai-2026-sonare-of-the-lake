@@ -1,20 +1,32 @@
+/**
+ * diveSegments: manually defined dive time ranges [ms].
+ * Format: [{ start: ms, end: ms }, ...]
+ * If empty [], falls back to TextAlive findChorus().
+ * Fill in per song after listening and noting chorus timestamps.
+ */
 export const SONGS = [
   { title:"こたえて (Answer Me)", artist:"imie", url:"https://piapro.jp/t/6W2N/20251215164617",
     options:{video:{beatId:4827293,chordId:2963754,repetitiveSegmentId:3086261,lyricId:126519,lyricDiffId:28645}},
-    theme:{sky:0x5aade0, skyHorizon:0xd4eaf8, particle:0xfff8d0, water:0x2a9bb5, deep:0x1a6080} },
+    theme:{sky:0x5aade0, skyHorizon:0xd4eaf8, particle:0xfff8d0, water:0x2a9bb5, deep:0x1a6080},
+    diveSegments:[] },
   { title:"アフター・ザ・カーテン", artist:"Rulmry", url:"https://piapro.jp/t/zoqO/20251214200738",
     options:{video:{beatId:4827294,chordId:2963755,repetitiveSegmentId:3086262,lyricId:126591,lyricDiffId:28627}},
-    theme:{sky:0x6a8cc0, skyHorizon:0xd4c8b0, particle:0xe8c080, water:0x3a8a9a, deep:0x1e5868} },
+    theme:{sky:0x6a8cc0, skyHorizon:0xd4c8b0, particle:0xe8c080, water:0x3a8a9a, deep:0x1e5868},
+    diveSegments:[] },
   { title:"シャッターチャンス", artist:"夜未アガリ", url:"https://piapro.jp/t/PNpQ/20251209170719",
     options:{video:{beatId:4827295,chordId:2963756,repetitiveSegmentId:3086263,lyricId:126542,lyricDiffId:28628}},
-    theme:{sky:0x5878b8, skyHorizon:0xc8b8e0, particle:0xd0b8ff, water:0x3878a0, deep:0x1e4868} },
+    theme:{sky:0x5878b8, skyHorizon:0xc8b8e0, particle:0xd0b8ff, water:0x3878a0, deep:0x1e4868},
+    diveSegments:[] },
   { title:"世界最後の音楽隊", artist:"夏山よつぎ×ど～ぱみん", url:"https://piapro.jp/t/B3yJ/20251215061727",
     options:{video:{beatId:4827296,chordId:2963757,repetitiveSegmentId:3086264,lyricId:126594,lyricDiffId:28629}},
-    theme:{sky:0x3a8a5a, skyHorizon:0xa8d8b8, particle:0x70d898, water:0x2a9878, deep:0x185848} },
+    theme:{sky:0x3a8a5a, skyHorizon:0xa8d8b8, particle:0x70d898, water:0x2a9878, deep:0x185848},
+    diveSegments:[] },
   { title:"トリツクロジー", artist:"鶴三", url:"https://piapro.jp/t/QBdL/20251215094303",
     options:{video:{beatId:4827297,chordId:2963758,repetitiveSegmentId:3086265,lyricId:126593,lyricDiffId:28630}},
-    theme:{sky:0x4878a8, skyHorizon:0xb0c8d8, particle:0x90c0e0, water:0x2a88a8, deep:0x185068} },
+    theme:{sky:0x4878a8, skyHorizon:0xb0c8d8, particle:0x90c0e0, water:0x2a88a8, deep:0x185068},
+    diveSegments:[] },
   { title:"TAKEOVER", artist:"Twinfield", url:"https://piapro.jp/t/E2i3/20251215092113",
     options:{video:{beatId:4827298,chordId:2963759,repetitiveSegmentId:3086266,lyricId:126533,lyricDiffId:28631}},
-    theme:{sky:0xc07040, skyHorizon:0xe8c8a0, particle:0xff8860, water:0x6a8070, deep:0x3a5040} },
+    theme:{sky:0xc07040, skyHorizon:0xe8c8a0, particle:0xff8860, water:0x6a8070, deep:0x3a5040},
+    diveSegments:[] },
 ];

@@ -22,11 +22,11 @@ export class Boat {
     // === Cannon-es physics body ===
     const shape = new CANNON.Box(new CANNON.Vec3(0.3, 0.25, 0.6));
     this.body = new CANNON.Body({
-      mass: 5,
+      mass: 8,
       position: new CANNON.Vec3(0, 0.35, 0),
       material: engine.materials.boat,
       linearDamping: 0.5,
-      angularDamping: 0.85,
+      angularDamping: 0.95,
       allowSleep: false,
     });
     this.body.addShape(shape);
@@ -79,20 +79,22 @@ export class Boat {
     engine.scene.add(this.mesh);
 
     // === Movement params ===
-    this.forwardForce = 60;
+    this.forwardForce = 32;
     this.sprintMultiplier = 1.8;
-    this.turnTorque = 5;
+    this.turnTorque = 4;
 
     // === Reusable vectors ===
     this._forceVec = new CANNON.Vec3();
     this._forwardVec = new CANNON.Vec3();
     this._posVec = new THREE.Vector3();
-
+    this._interpPos = new THREE.Vector3(0, 0.35, 0);
+    this._interpQuat = new THREE.Quaternion();
+    this._lanternGoal = 0;  // breathing target
     engine.addUpdatable(this);
   }
 
-  lanternPulse() {
-    this._lanternPulse = 1.0;
+  lanternPulse(intensity = 1.0) {
+    this._lanternGoal = intensity;
   }
 
   preStep(dt, elapsed) {
@@ -103,7 +105,7 @@ export class Boat {
     // ─── Buoyancy ───
     const waterLevel = this._diveWaterLevel ?? 0.35;
     const springK = 120;
-    const dampK = 25;
+    const dampK = waterLevel < 0 ? 50 : 25; // stronger damping underwater (absorbs frame spikes)
     this._forceVec.set(0, springK * (waterLevel - body.position.y) - dampK * vel.y, 0);
     body.applyForce(this._forceVec);
 
@@ -146,11 +148,11 @@ export class Boat {
       vel.z *= ratio;
     }
 
-    // ─── Anti-capsize ───
+    // ─── Anti-capsize (strong — boat should never flip) ───
     const q = body.quaternion;
-    const restoreK = 50;
-    body.angularVelocity.x += (-q.x * restoreK - body.angularVelocity.x * 5) * dt;
-    body.angularVelocity.z += (-q.z * restoreK - body.angularVelocity.z * 5) * dt;
+    const restoreK = 120;
+    body.angularVelocity.x += (-q.x * restoreK - body.angularVelocity.x * 12) * dt;
+    body.angularVelocity.z += (-q.z * restoreK - body.angularVelocity.z * 12) * dt;
   }
 
   update(dt, elapsed) {
@@ -160,9 +162,8 @@ export class Boat {
 
     // ─── Soft boundary ───
     const diving = (this._diveWaterLevel ?? 0.35) < 0;
-    const bScale = diving ? 0.5 : 1.0;
 
-    // Diving near edge: strong pull toward center
+    // Diving: circular pull toward center (open water, no rectangular shore)
     if (diving) {
       const distFromCenter = Math.sqrt(p.x * p.x + p.z * p.z);
       const safeRadius = 25;
@@ -183,12 +184,14 @@ export class Boat {
       }
     }
 
-    const bounds = {
-      xPos: { boundary: 60 * bScale, slowStart: 50 * bScale },
-      xNeg: { boundary: 58 * bScale, slowStart: 48 * bScale },
-      zPos: { boundary: 60 * bScale, slowStart: 50 * bScale },
-      zNeg: { boundary: 60 * bScale, slowStart: 40 * bScale },
-    };
+    // Surface: rectangular bounds matching shore terrain
+    if (!diving) {
+      const bounds = {
+        xPos: { boundary: 60, slowStart: 50 },
+        xNeg: { boundary: 58, slowStart: 48 },
+        zPos: { boundary: 60, slowStart: 50 },
+        zNeg: { boundary: 60, slowStart: 40 },
+      };
 
     const bx = p.x > 0 ? bounds.xPos : bounds.xNeg;
     const ax = Math.abs(p.x);
@@ -207,18 +210,36 @@ export class Boat {
       this._forceVec.set(0, 0, -Math.sign(p.z) * ratio * ratio * 300);
       this.body.applyForce(this._forceVec);
     }
+    } // end if (!diving)
 
-    // ─── Sync mesh ───
-    this.mesh.position.set(p.x, p.y, p.z);
-    this.mesh.quaternion.set(quat.x, quat.y, quat.z, quat.w);
-    this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
+    // ─── Sync mesh (interpolated for smooth high-refresh) ───
+    const lerpF = Math.min(dt * 25, 1);
+    this._interpPos.set(p.x, p.y, p.z);
 
-    // ─── Lantern beat pulse ───
-    if (this._lanternPulse > 0) {
-      this._lanternPulse *= Math.pow(0.03, dt);
-      if (this._lanternPulse < 0.01) this._lanternPulse = 0;
+    // XZ: normal lerp
+    this.mesh.position.x += (this._interpPos.x - this.mesh.position.x) * lerpF;
+    this.mesh.position.z += (this._interpPos.z - this.mesh.position.z) * lerpF;
+
+    // Y: clamp max change when underwater to prevent jitter from frame spikes
+    const targetY = this._interpPos.y + Math.sin(elapsed * 1.5) * 0.015;
+    if (diving) {
+      const maxYStep = dt * 3.0; // max 3 units/sec vertical — very smooth
+      const dy = targetY - this.mesh.position.y;
+      this.mesh.position.y += Math.max(-maxYStep, Math.min(maxYStep, dy));
+    } else {
+      this.mesh.position.y += (targetY - this.mesh.position.y) * lerpF;
     }
-    this.lantern.intensity = this._lanternBase + this._lanternPulse * 2.5;
+
+    this._interpQuat.set(quat.x, quat.y, quat.z, quat.w);
+    this.mesh.quaternion.slerp(this._interpQuat, lerpF);
+
+    // ─── Lantern breathing (smooth attack + smooth decay over 4 beats) ───
+    this._lanternGoal *= Math.pow(0.22, dt);
+    if (this._lanternGoal < 0.005) this._lanternGoal = 0;
+
+    const chase = Math.min(dt * 4.0, 1);
+    this._lanternPulse += (this._lanternGoal - this._lanternPulse) * chase;
+    this.lantern.intensity = this._lanternBase + this._lanternPulse * 3.0;
   }
 
   getPosition() {
@@ -237,5 +258,25 @@ export class Boat {
   getSpeed() {
     const v = this.body.velocity;
     return Math.sqrt(v.x * v.x + v.z * v.z);
+  }
+
+  /**
+   * Replace placeholder geometry with a loaded GLTF model.
+   * Call from main.js after gltfLoader.load succeeds.
+   * Handles scale, rotation, placeholder hiding — all in one place.
+   */
+  setModel(gltfScene, { scale = 0.3, rotationY = Math.PI } = {}) {
+    gltfScene.scale.setScalar(scale);
+    gltfScene.rotation.y = rotationY;
+    this.mesh.add(gltfScene);
+
+    // Hide all placeholder children (keep lights + the new model)
+    for (const child of this.mesh.children) {
+      if (child === gltfScene) continue;
+      if (child.isLight) continue;
+      child.visible = false;
+    }
+
+    this._model = gltfScene;
   }
 }
