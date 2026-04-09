@@ -122,6 +122,9 @@ function makeBoardTexture(text) {
   return new THREE.CanvasTexture(canvas);
 }
 
+let sharedBoardGeo = null;
+let sharedBoardShape = null;
+
 class LyricBoard {
   constructor(text, engine, colorHex, boatPos) {
     this.engine = engine;
@@ -131,12 +134,15 @@ class LyricBoard {
 
     this.texture = makeBoardTexture(text);
 
+    if (!sharedBoardGeo) sharedBoardGeo = new THREE.BoxGeometry(2.5, 0.1, 1.2);
+    if (!sharedBoardShape) sharedBoardShape = new CANNON.Box(new CANNON.Vec3(1.25, 0.05, 0.6));
+
     // Materials: wood sides + textured top
     const woodSide = new THREE.MeshLambertMaterial({ color: 0x8b6030 });
     const topMat = new THREE.MeshLambertMaterial({ map: this.texture });
     // BoxGeometry face order: [+x, -x, +y (top), -y, +z, -z]
     this.mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(2.5, 0.1, 1.2),
+      sharedBoardGeo,
       [woodSide, woodSide, topMat, woodSide, woodSide, woodSide]
     );
     this.mesh.castShadow = true;
@@ -150,14 +156,13 @@ class LyricBoard {
     this.mesh.position.set(spawnX, initY, spawnZ);
 
     // Physics body
-    const shape = new CANNON.Box(new CANNON.Vec3(1.25, 0.05, 0.6));
     this.body = new CANNON.Body({
       mass: 0.5,
       material: engine.materials.lyric,
       linearDamping: 0.7,
       angularDamping: 0.9,
     });
-    this.body.addShape(shape);
+    this.body.addShape(sharedBoardShape);
     // Lock rotation on X and Z axes — board stays flat
     this.body.angularFactor.set(0, 1, 0);
     this.body.position.copy(this.mesh.position);
@@ -234,7 +239,7 @@ class LyricBoard {
     this._disposed = true;
     this.engine.scene.remove(this.mesh);
     this.engine.world.removeBody(this.body);
-    this.mesh.geometry.dispose();
+    // Note: intentionally not disposing sharedBoardGeo or sharedBoardShape.
     const seen = new Set();
     for (const mat of this.mesh.material) {
       if (!seen.has(mat)) { mat.dispose(); seen.add(mat); }
