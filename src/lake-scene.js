@@ -63,7 +63,7 @@ export class LakeScene {
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.audioData = new Uint8Array(this.analyser.frequencyBinCount);
-      
+
       const source = this.audioContext.createMediaElementSource(audioEl);
       source.connect(this.analyser);
       this.analyser.connect(this.audioContext.destination);

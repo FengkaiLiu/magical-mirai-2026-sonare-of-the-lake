@@ -87,25 +87,21 @@ class SongCard {
     // BoxGeometry face order: [+x, -x, +y (top), -y, +z, -z]
     this.mesh = new THREE.Mesh(geo, [woodSide, woodSide, topMat, woodSide, woodSide, woodSide]);
     this.mesh.position.set(x, this.baseY, z);
-    this.mesh.lookAt(0, this.baseY, 0); // face lake center
+    this.mesh.lookAt(0, this.baseY, 0); // point the front edge at the lake center
+
+    // Tilt the board up by 45 degrees so the top face (with the text) faces you!
+    this.mesh.rotateX(Math.PI / 3);
+
     this.mesh.castShadow = true;
     engine.scene.add(this.mesh);
-
-    // Glow border mesh (slightly larger, BackSide, toggled by hover)
-    const glowGeo = new THREE.BoxGeometry(4.5, 0.18, 2.4);
-    this.glowMesh = new THREE.Mesh(
-      glowGeo,
-      new THREE.MeshBasicMaterial({ color: 0xffe880, transparent: true, opacity: 0, side: THREE.BackSide })
-    );
-    this.glowMesh.position.copy(this.mesh.position);
-    this.glowMesh.rotation.copy(this.mesh.rotation);
-    engine.scene.add(this.glowMesh);
 
     // Support post
     const postGeo = new THREE.CylinderGeometry(0.07, 0.07, 1.4, 8);
     const postMat = new THREE.MeshLambertMaterial({ color: 0x6b4020 });
     this.post = new THREE.Mesh(postGeo, postMat);
-    this.post.position.set(x, 0.05, z);
+    // Position pole so its top stops exactly below the board's top surface.
+    // The pole height is 1.4, so moving it down by 0.72 from the board center aligns it perfectly.
+    this.post.position.set(x, this.baseY - 0.72, z);
     engine.scene.add(this.post);
   }
 
@@ -115,19 +111,14 @@ class SongCard {
       this.mesh.position.z += this.scatterVel.z * dt;
       this.mesh.position.y += this.scatterVel.y * dt;
       this.scatterVel.y -= 9 * dt; // gravity pull
-      this.glowMesh.position.copy(this.mesh.position);
-      this.glowMesh.rotation.copy(this.mesh.rotation);
+      this.post.position.copy(this.mesh.position);
+      this.post.position.y -= 0.72;
       return;
     }
 
     // Gentle bob
     this.mesh.position.y = this.baseY + Math.sin(elapsed * 1.2 + this.bobOffset) * 0.09;
-
-    // Hover glow lerp
-    const targetOpacity = isHovered ? 0.35 : 0;
-    this.glowMesh.material.opacity += (targetOpacity - this.glowMesh.material.opacity) * 0.08;
-    this.glowMesh.position.copy(this.mesh.position);
-    this.glowMesh.rotation.copy(this.mesh.rotation);
+    this.post.position.y = this.mesh.position.y - 0.72;
   }
 
   scatter() {
@@ -144,14 +135,11 @@ class SongCard {
   dispose() {
     const scene = this.engine.scene;
     scene.remove(this.mesh);
-    scene.remove(this.glowMesh);
     scene.remove(this.post);
     this.texture.dispose();
     this.mesh.geometry.dispose();
-    this.glowMesh.geometry.dispose();
     this.post.geometry.dispose();
     for (const m of this.mesh.material) if (m && m.dispose) m.dispose();
-    this.glowMesh.material.dispose();
     this.post.material.dispose();
   }
 }

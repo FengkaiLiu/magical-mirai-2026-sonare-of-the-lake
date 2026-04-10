@@ -10,11 +10,11 @@ import * as CANNON from "cannon-es";
 function waveHeight(x, z, t) {
   const w = (px, pz, dx, dz, len, amp, spd) =>
     amp * Math.sin(Math.PI * (px * dx + pz * dz) / len + spd * t);
-  return w(x, z,  0.8,  0.6, 5.0, 0.08, 0.7)
-       + w(x, z, -0.5,  0.8, 8.0, 0.05, 0.5)
-       + w(x, z,  0.3, -0.7, 3.0, 0.03, 1.0)
-       + w(x, z,  0.6, -0.4, 1.5, 0.012, 1.8)
-       + w(x, z, -0.3,  0.9, 2.0, 0.015, 1.4);
+  return w(x, z, 0.8, 0.6, 5.0, 0.08, 0.7)
+    + w(x, z, -0.5, 0.8, 8.0, 0.05, 0.5)
+    + w(x, z, 0.3, -0.7, 3.0, 0.03, 1.0)
+    + w(x, z, 0.6, -0.4, 1.5, 0.012, 1.8)
+    + w(x, z, -0.3, 0.9, 2.0, 0.015, 1.4);
 }
 
 function makeTextTexture(text, colorHex) {
@@ -28,9 +28,9 @@ function makeTextTexture(text, colorHex) {
 
   // Radial gradient fill: bright highlight at top-left → translucent blue at edge
   const grad = ctx.createRadialGradient(85, 85, 8, 128, 128, 120);
-  grad.addColorStop(0,   "rgba(255, 255, 255, 0.65)");
+  grad.addColorStop(0, "rgba(255, 255, 255, 0.65)");
   grad.addColorStop(0.4, "rgba(180, 220, 255, 0.35)");
-  grad.addColorStop(1,   "rgba(100, 180, 255, 0.18)");
+  grad.addColorStop(1, "rgba(100, 180, 255, 0.18)");
 
   // Clip to circle, fill bubble
   ctx.save();
