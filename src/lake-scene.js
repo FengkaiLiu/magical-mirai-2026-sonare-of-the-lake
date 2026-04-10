@@ -24,6 +24,7 @@ export class LakeScene {
 
     this.env = new Environment(engine);
     this.env.setTheme(this.song.theme);
+    this.engine.env = this.env;
 
     // Boat, camera, controls
     this.controls = new Controls();
@@ -110,6 +111,22 @@ export class LakeScene {
         if (pauseBtn) pauseBtn.textContent = "▶";
       },
     });
+
+    // Sky Toggler
+    this.skyMode = false;
+    const skyBtn = document.getElementById("sky-btn");
+    skyBtn?.addEventListener("click", () => this.toggleSkyMode());
+  }
+
+  toggleSkyMode() {
+    this.skyMode = !this.skyMode;
+    const skyBtn = document.getElementById("sky-btn");
+    if (skyBtn) {
+      skyBtn.textContent = this.skyMode ? "⛵ Lake View" : "🌌 Sky View";
+      skyBtn.classList.toggle("active", this.skyMode);
+    }
+    this.cam.setSkyMode(this.skyMode);
+    this.lyrics.setChorusMode(this.skyMode);
   }
 
   togglePause() {

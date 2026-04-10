@@ -242,10 +242,132 @@ class LyricBoard {
     // Note: intentionally not disposing sharedBoardGeo or sharedBoardShape.
     const seen = new Set();
     for (const mat of this.mesh.material) {
-      if (!seen.has(mat)) { mat.dispose(); seen.add(mat); }
+      if (mat && !seen.has(mat)) { mat.dispose(); seen.add(mat); }
     }
     this.texture.dispose();
     this.engine = null;
+  }
+}
+
+class SkyLyricSystem {
+  constructor(engine, colorHex) {
+    this.engine = engine;
+    this.colorHex = colorHex;
+    this.phrases = [];
+    
+    this.particleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+  }
+
+  addPhrase(text, boatPos) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 256; canvas.height = 128;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = 'bold 36px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif';
+    ctx.fillText(text, 128, 64);
+
+    const data = ctx.getImageData(0, 0, 256, 128).data;
+    const points = [];
+    
+    // Sample pixels step by 1.5 for much higher density (more particles)
+    for (let y = 0; y < 128; y += 4.0) { 
+      for (let x = 0; x < 256; x += 4.0) {
+        const i = (Math.floor(y) * 256 + Math.floor(x)) * 4;
+        if (data[i] > 128) {
+          points.push({ 
+            tx: (x - 128) * 0.12, // Slightly tighter spacing
+            ty: -(y - 64) * 0.12,  
+            // Start scattered
+            sx: (Math.random() - 0.5) * 25, 
+            sy: (Math.random() - 0.5) * 25,
+            sz: (Math.random() - 0.5) * 25
+          });
+        }
+      }
+    }
+    
+    if (points.length === 0) return;
+    
+    const mat = new THREE.MeshBasicMaterial({ 
+      color: 0xffffff, // Force bright white for maximum contrast
+      transparent: true, 
+      opacity: 0.0 
+    });
+    
+    // Use slightly larger particles
+    const particleGeo = new THREE.BoxGeometry(0.10, 0.10, 0.10);
+    const imesh = new THREE.InstancedMesh(particleGeo, mat, points.length);
+    const spawnZ = boatPos.z - 40; 
+    const spawnX = boatPos.x;
+    const spawnY = 15; 
+    
+    imesh.position.set(spawnX, spawnY, spawnZ);
+    
+    this.engine.scene.add(imesh);
+    this.phrases.push({ 
+      mesh: imesh, 
+      geo: particleGeo, // Store geo for disposal
+      points: points,
+      life: 6.0, 
+      age: 0 
+    });
+  }
+
+  update(dt) {
+    const dummy = new THREE.Object3D();
+    for (const p of this.phrases) {
+      p.age += dt;
+      
+      // Animation progress: 0 to 1 over first 1.5s
+      const progress = Math.min(1.0, p.age / 1.5);
+      const ease = 1.0 - Math.pow(1.0 - progress, 3); // cubic out
+      
+      for (let i = 0; i < p.points.length; i++) {
+        const pt = p.points[i];
+        const x = THREE.MathUtils.lerp(pt.sx, pt.tx, ease);
+        const y = THREE.MathUtils.lerp(pt.sy, pt.ty, ease);
+        const z = THREE.MathUtils.lerp(pt.sz, 0, ease);
+        
+        dummy.position.set(x, y, z);
+        // Larger "star" pop effect
+        dummy.scale.setScalar(1.2 + Math.sin(p.age * 3 + i) * 0.4);
+        dummy.updateMatrix();
+        p.mesh.setMatrixAt(i, dummy.matrix);
+      }
+      p.mesh.instanceMatrix.needsUpdate = true;
+      
+      // Float up slightly
+      p.mesh.position.y += dt * 0.3;
+
+      let opacity = 1.0;
+      if (p.age < 0.5) opacity = p.age / 0.5;
+      else if (p.age > p.life - 1.5) opacity = Math.max(0, (p.life - p.age) / 1.5);
+      p.mesh.material.opacity = opacity;
+    }
+    
+    this.phrases = this.phrases.filter(p => {
+      if (p.age > p.life) {
+        this.engine.scene.remove(p.mesh);
+        p.mesh.material.dispose();
+        if (p.geo) p.geo.dispose();
+        p.mesh.dispose();
+        return false;
+      }
+      return true;
+    });
+  }
+
+  dispose() {
+    for (const p of this.phrases) {
+      if (p.mesh.parent) this.engine.scene.remove(p.mesh);
+      p.mesh.material.dispose();
+      if (p.geo) p.geo.dispose();
+      p.mesh.dispose();
+    }
   }
 }
 
@@ -254,6 +376,8 @@ export class LyricManager {
     this.engine = engine;
     this.boat = boat;
     this.colorHex = colorHex;
+    this.isChorus = false;
+    this.skySystem = new SkyLyricSystem(engine, colorHex);
     this.sprites = [];
     this.currentText = "";
     this._updatable = {
@@ -269,6 +393,10 @@ export class LyricManager {
     }
   }
 
+  setChorusMode(isChorus) {
+    this.isChorus = isChorus;
+  }
+
   addPhrase(text) {
     if (!text || text === this.currentText) return;
     this.currentText = text;
@@ -280,10 +408,15 @@ export class LyricManager {
     }
 
     const boatPos = this.boat.getPosition();
-    this.sprites.push(new LyricBoard(text, this.engine, this.colorHex, boatPos));
+    if (this.isChorus) {
+      this.skySystem.addPhrase(text, boatPos);
+    } else {
+      this.sprites.push(new LyricBoard(text, this.engine, this.colorHex, boatPos));
+    }
   }
 
   _update(dt, elapsed) {
+    this.skySystem.update(dt);
     for (const s of this.sprites) s.update(dt, elapsed);
     this.sprites = this.sprites.filter(s => {
       if (!s.alive) { s.dispose(); return false; }
@@ -294,6 +427,7 @@ export class LyricManager {
   dispose() {
     this.engine.removeUpdatable(this._updatable);
     for (const s of this.sprites) s.dispose();
+    this.skySystem.dispose();
     this.sprites = [];
   }
 }

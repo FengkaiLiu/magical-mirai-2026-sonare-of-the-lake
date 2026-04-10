@@ -33,21 +33,38 @@ export class CameraController {
     this.targetPos = boatPosition;
   }
 
+  setSkyMode(enable) {
+    this.skyMode = enable;
+  }
+
+  setSkyLyric(mesh) {
+    this.skyLyricMesh = mesh;
+  }
+
   update(dt, elapsed) {
     if (!this.targetPos) return;
 
-    // 目標カメラ位置: 船の後方上空 (角度固定)
+    // 目標注視点: 船の少し前方、Chorus中は空高く且つ歌詞をセンターに
+    let goalLook;
+    if (this.skyMode) {
+      // Look at a point high in front of the boat
+      goalLook = new THREE.Vector3(
+        this.targetPos.x,
+        15, // Lower than 35 for more horizontal view
+        this.targetPos.z - 40
+      );
+    } else {
+      goalLook = new THREE.Vector3(
+        this.targetPos.x,
+        0,
+        this.targetPos.z - this.lookAhead
+      );
+    }
+
     const goalPos = new THREE.Vector3(
       this.targetPos.x,
-      this.targetPos.y + this.height,
-      this.targetPos.z + this.distance
-    );
-
-    // 目標注視点: 船の少し前方
-    const goalLook = new THREE.Vector3(
-      this.targetPos.x,
-      0,
-      this.targetPos.z - this.lookAhead
+      this.targetPos.y + (this.skyMode ? 2.5 : this.height), // Slightly higher in sky mode to see horizon
+      this.targetPos.z + (this.skyMode ? 12 : this.distance) // Farther back to see the scale
     );
 
     // フレームレート非依存のスムーズ補間

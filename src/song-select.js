@@ -167,6 +167,7 @@ export class SongSelectScene {
     // Scene objects
     this.water = new Water(engine);
     this.env = new Environment(engine);
+    this.engine.env = this.env;
     this.controls = new Controls();
     this.boat = new Boat(engine, this.controls);
     this.cam = new CameraController(engine);

@@ -76,16 +76,28 @@ body {
 }
 #hud.visible { display: flex; }
 
-#pause-btn {
+.hud-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#pause-btn, #sky-btn {
   background: rgba(255,255,255,0.15);
   border: 1px solid rgba(255,255,255,0.3);
   border-radius: 6px;
   color: #fff;
-  font-size: 1rem;
-  padding: 0.25rem 0.6rem;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.8rem;
   cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
 }
-#pause-btn:hover { background: rgba(255,255,255,0.25); }
+
+#pause-btn:hover, #sky-btn:hover { background: rgba(255,255,255,0.25); }
+#sky-btn.active { 
+  background: rgba(64, 224, 208, 0.4); 
+  border-color: rgba(64, 224, 208, 0.8);
+}
+#sky-btn:active { transform: scale(0.95); }
 
 #song-info {
   flex: 1;
