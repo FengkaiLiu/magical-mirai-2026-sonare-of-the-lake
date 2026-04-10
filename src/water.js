@@ -14,12 +14,16 @@ const vertShader = /* glsl */ `
     return amp * sin(3.1416 * dot(pos, dir) / len + spd * uTime);
   }
 
+  uniform float uEnergy;
+
   float waveHeight(vec2 p) {
-    float w1 = wave(p, vec2(0.8, 0.6), 5.0, 0.08, 0.7);
-    float w2 = wave(p, vec2(-0.5, 0.8), 8.0, 0.05, 0.5);
-    float w3 = wave(p, vec2(0.3, -0.7), 3.0, 0.03, 1.0);
-    float w4 = wave(p, vec2(0.6, -0.4), 1.5, 0.012, 1.8);
-    float w5 = wave(p, vec2(-0.3, 0.9), 2.0, 0.015, 1.4);
+    float ampMod = 1.0 + uEnergy * 2.0; // Boost amplitude with energy
+    float spdMod = 1.0 + uEnergy * 1.5; // Boost speed with energy
+    float w1 = wave(p, vec2(0.8, 0.6), 5.0, 0.08 * ampMod, 0.7 * spdMod);
+    float w2 = wave(p, vec2(-0.5, 0.8), 8.0, 0.05 * ampMod, 0.5 * spdMod);
+    float w3 = wave(p, vec2(0.3, -0.7), 3.0, 0.03 * ampMod, 1.0 * spdMod);
+    float w4 = wave(p, vec2(0.6, -0.4), 1.5, 0.012 * ampMod, 1.8 * spdMod);
+    float w5 = wave(p, vec2(-0.3, 0.9), 2.0, 0.015 * ampMod, 1.4 * spdMod);
     return w1 + w2 + w3 + w4 + w5;
   }
 
@@ -51,6 +55,7 @@ const fragShader = /* glsl */ `
   uniform float uCloudScale;
   uniform vec3  uSkyTop;
   uniform vec3  uSkyHorizon;
+  uniform float uEnergy;
 
   varying vec3 vWorldPos;
   varying vec3 vWorldNormal;
@@ -78,9 +83,11 @@ const fragShader = /* glsl */ `
     col += vec3(1.0, 0.95, 0.85) * spec * 0.6;
 
     // Caustics
-    float c1 = sin(vWorldPos.x * 0.8 + uTime * 0.3) * sin(vWorldPos.z * 0.7 + uTime * 0.25);
-    float c2 = sin(vWorldPos.x * 1.1 - uTime * 0.2) * sin(vWorldPos.z * 0.9 + uTime * 0.15);
+    float cSpd = uTime * (0.3 + uEnergy * 0.5);
+    float c1 = sin(vWorldPos.x * 0.8 + cSpd) * sin(vWorldPos.z * 0.7 + cSpd * 0.8);
+    float c2 = sin(vWorldPos.x * 1.1 - cSpd * 0.7) * sin(vWorldPos.z * 0.9 + cSpd * 0.5);
     float caustic = (c1 + c2) * 0.015 + 0.02;
+    caustic *= 1.0 + uEnergy * 2.5; // Boost caustics wildly with bass
     col += vec3(caustic * 0.3, caustic * 0.6, caustic * 0.8);
 
     // Foam at wave peaks
@@ -120,6 +127,7 @@ export class Water {
       uCloudScale:  { value: 0.015 },
       uSkyTop:      { value: new THREE.Color(0x1a7ad4) },
       uSkyHorizon:  { value: new THREE.Color(0xe8f4ff) },
+      uEnergy:      { value: 0 },
     };
 
     const geo = new THREE.PlaneGeometry(120, 120, 50, 50);
@@ -136,7 +144,15 @@ export class Water {
     // ShaderMaterial does not auto-receive shadows without manual shadow map sampling
     engine.scene.add(this.mesh);
 
+    this.analyser = null;
+    this.audioData = null;
+
     engine.addUpdatable(this);
+  }
+
+  setAudioAnalyser(analyser, data) {
+    this.analyser = analyser;
+    this.audioData = data;
   }
 
   setColors(shallow, deep) {
@@ -147,9 +163,29 @@ export class Water {
   update(dt, elapsed) {
     this.uniforms.uTime.value = elapsed;
     this.uniforms.uCamPos.value.copy(this.camera.position);
+    
+    let energy = 0;
+    if (this.analyser) {
+      this.analyser.getByteFrequencyData(this.audioData);
+      // Average the lowest 5 bins (bass)
+      let sum = 0;
+      for (let i = 0; i < 5; i++) {
+        sum += this.audioData[i];
+      }
+      energy = (sum / 5) / 255.0; // 0.0 to 1.0
+      // Apply simple exponential curve so only hard hits register highly
+      energy = Math.pow(Math.max(0, energy - 0.4) / 0.6, 2.0);
+    }
+    
+    // Smooth out energy to avoid visual glitching/flicker
+    if (!this.smoothedEnergy) this.smoothedEnergy = 0;
+    this.smoothedEnergy += (energy - this.smoothedEnergy) * dt * 15.0;
+    
+    this.uniforms.uEnergy.value = this.smoothedEnergy;
+
     // Advance cloud offset — drives shadow drift
-    this.uniforms.uCloudOffset.value.x = elapsed * 0.008;
-    this.uniforms.uCloudOffset.value.y = elapsed * 0.005;
+    this.uniforms.uCloudOffset.value.x = elapsed * (0.008 + this.smoothedEnergy * 0.01);
+    this.uniforms.uCloudOffset.value.y = elapsed * (0.005 + this.smoothedEnergy * 0.01);
   }
 
   dispose() {

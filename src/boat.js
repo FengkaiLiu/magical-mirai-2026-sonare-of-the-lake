@@ -10,6 +10,99 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 
+class ParticleTrail {
+  constructor(scene) {
+    this.scene = scene;
+    this.maxParticles = 150;
+    this.particles = [];
+    this.poolIndex = 0;
+
+    const geo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+    });
+
+    for (let i = 0; i < this.maxParticles; i++) {
+      const mesh = new THREE.Mesh(geo, mat.clone());
+      mesh.position.y = -999;
+      this.scene.add(mesh);
+      this.particles.push({ 
+        mesh, life: 0, 
+        vx: 0, vy: 0, vz: 0 
+      });
+    }
+  }
+
+  spawn(pos, forward, speed) {
+    if (speed < 1.0) return;
+
+    // Spawn 2-3 particles at a time
+    const amount = 2 + Math.floor(Math.random() * 2);
+    for (let i = 0; i < amount; i++) {
+      const p = this.particles[this.poolIndex];
+      this.poolIndex = (this.poolIndex + 1) % this.maxParticles;
+
+      p.life = 1.0;
+      
+      // Start slightly behind boat, at water level
+      p.mesh.position.copy(pos);
+      p.mesh.position.y = 0.05;
+      p.mesh.position.x -= forward.x * 0.4 + (Math.random() - 0.5) * 0.3;
+      p.mesh.position.z -= forward.z * 0.4 + (Math.random() - 0.5) * 0.3;
+      
+      // Burst upwards and slightly outward
+      p.vx = -forward.x * 0.3 + (Math.random() - 0.5) * 1.5;
+      p.vy = 0.6 + Math.random() * 0.8;
+      p.vz = -forward.z * 0.3 + (Math.random() - 0.5) * 1.5;
+      
+      // Randomize initial scale
+      const s = 0.4 + Math.random() * 1.0;
+      p.mesh.scale.set(s, s, s);
+      p.mesh.material.opacity = 0.8;
+    }
+  }
+
+  update(dt) {
+    for (const p of this.particles) {
+      if (p.life > 0) {
+        // Physics
+        p.vy -= 4.0 * dt; // Gravity
+        p.mesh.position.x += p.vx * dt;
+        p.mesh.position.y += p.vy * dt;
+        p.mesh.position.z += p.vz * dt;
+        
+        // Splash down and stop on water
+        if (p.mesh.position.y < 0.0) {
+          p.mesh.position.y = 0.0;
+          p.vy = 0;
+          p.vx *= 0.8; // Friction on water
+          p.vz *= 0.8;
+        }
+
+        // Fade out
+        p.life -= dt * 1.2;
+        if (p.life < 0) p.life = 0;
+        
+        p.mesh.material.opacity = p.life * 0.8;
+        
+        // Shrink slightly as it fades
+        const s = p.mesh.scale.x * 0.95;
+        p.mesh.scale.set(s, s, s);
+      }
+    }
+  }
+  
+  dispose() {
+    for (const p of this.particles) {
+      this.scene.remove(p.mesh);
+      p.mesh.material.dispose();
+      p.mesh.geometry.dispose();
+    }
+  }
+}
+
 export class Boat {
   constructor(engine, controls) {
     this.engine = engine;
@@ -123,6 +216,10 @@ export class Boat {
     this.forwardForce = 25;
     this.turnTorque = 5;
 
+    // === Wake Trail Particles ===
+    this.trail = new ParticleTrail(engine.scene);
+    this.trailTimer = 0;
+
     engine.addUpdatable(this);
   }
 
@@ -196,6 +293,23 @@ export class Boat {
 
     // 微かなボブ
     this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
+
+    // Trail update
+    this.trail.update(dt);
+    this.trailTimer += dt;
+    if (this.trailTimer > 0.02) {
+      this.trailTimer = 0;
+      
+      const v = this.body.velocity;
+      const speed = Math.sqrt(v.x * v.x + v.z * v.z);
+      
+      const forward = new CANNON.Vec3(0, 0, -1);
+      quat.vmult(forward, forward);
+      forward.y = 0;
+      forward.normalize();
+
+      this.trail.spawn(this.mesh.position, forward, speed);
+    }
   }
 
   getPosition() {
@@ -216,6 +330,7 @@ export class Boat {
       if (child.material) child.material.dispose();
     });
     this.engine.world.removeBody(this.body);
+    this.trail.dispose();
     this.engine = null;
   }
 }

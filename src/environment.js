@@ -4,27 +4,31 @@
  */
 
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 export class Environment {
   constructor(engine) {
     this.engine = engine;
     const scene = engine.scene;
     this._sceneObjects = [];
+    this.analyser = null;
+    this.audioData = null;
 
     // === Lighting ===
     this.ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
     scene.add(this.ambientLight);
 
     this.sunLight = new THREE.DirectionalLight(0xfff4d6, 3.0);
+    this.baseSunIntensity = 3.0; // Base value to scale from with audio
     this.sunLight.position.set(15, 60, -20);
     this.sunLight.castShadow = true;
     this.sunLight.shadow.mapSize.set(1024, 1024);
     this.sunLight.shadow.camera.near = 1;
-    this.sunLight.shadow.camera.far = 60;
-    this.sunLight.shadow.camera.left = -30;
-    this.sunLight.shadow.camera.right = 30;
-    this.sunLight.shadow.camera.top = 30;
-    this.sunLight.shadow.camera.bottom = -30;
+    this.sunLight.shadow.camera.far = 80;
+    this.sunLight.shadow.camera.left = -50;
+    this.sunLight.shadow.camera.right = 50;
+    this.sunLight.shadow.camera.top = 50;
+    this.sunLight.shadow.camera.bottom = -50;
     scene.add(this.sunLight);
 
     this.fillLight = new THREE.DirectionalLight(0xffe0b0, 0.7);
@@ -116,26 +120,25 @@ export class Environment {
       });
     }
 
-    // === Trees ===
-    const treeCount = 80;
-    const treeGeo = new THREE.ConeGeometry(0.5, 2, 4);
-    const treeMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
-    this.trees = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < treeCount; i++) {
-      const angle = (i / treeCount) * Math.PI * 2;
-      const radius = 42 + Math.sin(i * 2.5) * 4;
-      const h = 1.5 + Math.abs(Math.sin(i * 1.6)) * 3;
-      const s = 0.6 + Math.abs(Math.sin(i * 0.9)) * 0.7;
-      dummy.position.set(Math.cos(angle) * radius, h * 0.5, Math.sin(angle) * radius);
-      dummy.scale.set(s, h, s);
-      dummy.updateMatrix();
-      this.trees.setMatrixAt(i, dummy.matrix);
-    }
-    this.trees.instanceMatrix.needsUpdate = true;
-    this.trees.castShadow = true;
-    scene.add(this.trees);
-    this._sceneObjects.push(this.trees);
+    // === Terrain from GLTF ===
+    const loader = new GLTFLoader();
+    loader.load("/models/terrain.glb", (gltf) => {
+      this.terrainModel = gltf.scene;
+      
+      this.terrainModel.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      
+      // Position and scale the terrain to fit around the lake
+      this.terrainModel.position.set(0, 0, 0); 
+      this.terrainModel.scale.set(1, 1, 1);
+      
+      scene.add(this.terrainModel);
+      this._sceneObjects.push(this.terrainModel);
+    });
 
     // === Floating particles ===
     this.particleCount = 50;
@@ -166,7 +169,30 @@ export class Environment {
     this.particles.material.color.set(theme.particle);
   }
 
+  setAudioAnalyser(analyser, data) {
+    this.analyser = analyser;
+    this.audioData = data;
+  }
+
   update(dt, elapsed) {
+    // Process audio energy
+    let energy = 0;
+    if (this.analyser) {
+      this.analyser.getByteFrequencyData(this.audioData);
+      let sum = 0;
+      for (let i = 0; i < 5; i++) sum += this.audioData[i];
+      energy = (sum / 5) / 255.0; 
+      energy = Math.pow(Math.max(0, energy - 0.4) / 0.6, 2.0);
+    }
+
+    if (!this.smoothedEnergy) this.smoothedEnergy = 0;
+    this.smoothedEnergy += (energy - this.smoothedEnergy) * dt * 15.0;
+
+    // React to audio!
+    this.sunLight.intensity = this.baseSunIntensity + this.smoothedEnergy * 1.5;
+    const haloScale = 1.0 + this.smoothedEnergy * 0.8;
+    this.halo.scale.set(haloScale, haloScale, haloScale);
+
     // Sun bob
     this.sun.position.y = 55 + Math.sin(elapsed * 0.15) * 0.05;
     this.halo.position.copy(this.sun.position);
@@ -180,11 +206,14 @@ export class Environment {
       if (c.sprite.position.z > 120) c.sprite.position.z -= 240;
     }
 
-    // Particles rise and reset
+    // Particles rise and reset (faster with energy)
     const p = this.particles.geometry.attributes.position.array;
     const v = this.particleVel;
+    const speedMultiplier = 1.0 + this.smoothedEnergy * 5.0;
     for (let i = 0; i < this.particleCount; i++) {
-      p[i*3] += v[i*3]; p[i*3+1] += v[i*3+1]; p[i*3+2] += v[i*3+2];
+      p[i*3] += v[i*3] * speedMultiplier; 
+      p[i*3+1] += v[i*3+1] * speedMultiplier; 
+      p[i*3+2] += v[i*3+2] * speedMultiplier;
       if (p[i*3+1] > 5) {
         p[i*3] = (Math.random()-0.5) * 40;
         p[i*3+1] = 0.3;
@@ -207,7 +236,20 @@ export class Environment {
     this.skyMat.dispose();
     this.sun.geometry.dispose(); this.sun.material.dispose();
     this.halo.geometry.dispose(); this.halo.material.dispose();
-    this.trees.geometry.dispose(); this.trees.material.dispose();
+    if (this.terrainModel) {
+      this.terrainModel.traverse(child => {
+        if (child.isMesh) {
+          child.geometry.dispose();
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(m => m.dispose());
+            } else {
+              child.material.dispose();
+            }
+          }
+        }
+      });
+    }
     this.particles.geometry.dispose(); this.particles.material.dispose();
     for (const c of this.clouds) c.sprite.material.dispose();
     this.engine = null;

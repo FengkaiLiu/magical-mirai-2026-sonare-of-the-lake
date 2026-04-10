@@ -50,10 +50,29 @@ export class LakeScene {
     }
 
     // TextAlive
+    const audioEl = document.createElement("audio");
+    audioEl.crossOrigin = "anonymous";
     this.player = new Player({
       app: { token: "xTTinPuYYoHYLhnk" },
-      mediaElement: document.createElement("audio"),
+      mediaElement: audioEl,
     });
+
+    // Audio-Reaction setup
+    try {
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.analyser = this.audioContext.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.audioData = new Uint8Array(this.analyser.frequencyBinCount);
+      
+      const source = this.audioContext.createMediaElementSource(audioEl);
+      source.connect(this.analyser);
+      this.analyser.connect(this.audioContext.destination);
+
+      this.env.setAudioAnalyser(this.analyser, this.audioData);
+      this.water.setAudioAnalyser(this.analyser, this.audioData);
+    } catch (e) {
+      console.warn("AudioContext setup failed (CORS or unavailable). Audio reactivity disabled.", e);
+    }
 
     this._managed = false;
     this.player.addListener({
@@ -81,6 +100,10 @@ export class LakeScene {
         document.getElementById("overlay")?.classList.add("hidden");
         const pauseBtn = document.getElementById("pause-btn");
         if (pauseBtn) pauseBtn.textContent = "⏸";
+
+        if (this.audioContext && this.audioContext.state === "suspended") {
+          this.audioContext.resume();
+        }
       },
       onPause: () => {
         const pauseBtn = document.getElementById("pause-btn");
@@ -96,6 +119,9 @@ export class LakeScene {
 
   dispose() {
     this.player.dispose();
+    if (this.audioContext) {
+      this.audioContext.close();
+    }
     this.engine.removeUpdatable(this._camUpdatable);
     this.water.dispose();
     this.env.dispose();
