@@ -9,6 +9,7 @@
 
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 class ParticleTrail {
   constructor(engine) {
@@ -50,7 +51,7 @@ class ParticleTrail {
       const wh = waveHeight(pos.x, pos.z, 0, energy);
 
       // Distinct spawn points at the rear quarters of the hull
-      const sideOffset = side * 0.45; // Fixed width for the two lines
+      const sideOffset = side * 0.6; // Wider spawn to prevent lines crossing
       const backOffset = 0.6;
       
       // Calculate world-space spawn position for this side
@@ -59,9 +60,9 @@ class ParticleTrail {
       p.mesh.position.x -= forward.x * backOffset + forward.z * sideOffset;
       p.mesh.position.z -= forward.z * backOffset - forward.x * sideOffset;
       
-      // Push particles outwards (side * 1.5) and slightly backwards
-      p.vx = -forward.x * 0.5 + forward.z * side * 1.5;
-      p.vz = -forward.z * 0.5 - forward.x * side * 1.5;
+      // Push particles more backwards and less outwards to keep lines parallel
+      p.vx = -forward.x * 1.2 + forward.z * side * 0.6;
+      p.vz = -forward.z * 1.2 - forward.x * side * 0.6;
       
       const s = 0.4 + Math.random() * 0.8;
       p.mesh.scale.set(s, s, s);
@@ -141,63 +142,45 @@ export class Boat {
     // === Three.js mesh ===
     this.mesh = new THREE.Group();
 
+    /* --- Original Boat Geometry (Commented out) ---
     const hullMat = new THREE.MeshLambertMaterial({ color: 0xc08040 });
 
-    // Custom V-hull: 5 cross-sections [z, halfWidth, depth]
     const secs = [
-      { z: -0.70, hw: 0.000, d: 0.000 }, // 0: bow tip
-      { z: -0.35, hw: 0.200, d: 0.200 }, // 1: front
-      { z: 0.00, hw: 0.300, d: 0.260 }, // 2: mid (beam)
-      { z: 0.35, hw: 0.275, d: 0.220 }, // 3: aft
-      { z: 0.65, hw: 0.225, d: 0.160 }, // 4: stern
+      { z: -0.70, hw: 0.000, d: 0.000 },
+      { z: -0.35, hw: 0.200, d: 0.200 },
+      { z: 0.00, hw: 0.300, d: 0.260 },
+      { z: 0.35, hw: 0.275, d: 0.220 },
+      { z: 0.65, hw: 0.225, d: 0.160 },
     ];
-
-    // Build vertex array
-    // Vertex layout: bow(0), then per section 1-4: portTop(3i-2), starbTop(3i-1), keel(3i)
     const verts = [];
-    verts.push(0, 0, secs[0].z); // index 0: bow tip
+    verts.push(0, 0, secs[0].z);
     for (let i = 1; i <= 4; i++) {
       const s = secs[i];
-      verts.push(-s.hw, 0, s.z); // portTop
-      verts.push(s.hw, 0, s.z); // starbTop
-      verts.push(0, -s.d, s.z); // keel
+      verts.push(-s.hw, 0, s.z);
+      verts.push(s.hw, 0, s.z);
+      verts.push(0, -s.d, s.z);
     }
-    // Index map: bow=0, front:[1,2,3], mid:[4,5,6], aft:[7,8,9], stern:[10,11,12]
-
-    // Build index array (CCW winding for outward normals)
     const idx = [];
-
-    // Bow cap (tip → front section)
-    idx.push(0, 1, 2);  // deck triangle
-    idx.push(0, 3, 1);  // port bow face
-    idx.push(0, 2, 3);  // starboard bow face
-
-    // Section pairs: front→mid, mid→aft, aft→stern
+    idx.push(0, 1, 2);
+    idx.push(0, 3, 1);
+    idx.push(0, 2, 3);
     const bases = [1, 4, 7, 10];
     for (let i = 0; i < 3; i++) {
       const pP = bases[i], pS = pP + 1, pK = pP + 2;
       const cP = bases[i + 1], cS = cP + 1, cK = cP + 2;
-      idx.push(pP, pK, cP, cP, pK, cK); // port quad
-      idx.push(pS, cS, pK, cS, cK, pK); // starboard quad
-      idx.push(pP, cP, pS, cP, cS, pS); // deck quad
+      idx.push(pP, pK, cP, cP, pK, cK);
+      idx.push(pS, cS, pK, cS, cK, pK);
+      idx.push(pP, cP, pS, cP, cS, pS);
     }
-
-    // Stern cap
     idx.push(10, 12, 11);
-
     const hullGeo = new THREE.BufferGeometry();
-    hullGeo.setAttribute(
-      "position",
-      new THREE.BufferAttribute(new Float32Array(verts), 3)
-    );
+    hullGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(verts), 3));
     hullGeo.setIndex(idx);
     hullGeo.computeVertexNormals();
-
     const hull = new THREE.Mesh(hullGeo, hullMat);
     hull.castShadow = true;
     this.mesh.add(hull);
 
-    // Mast
     const mast = new THREE.Mesh(
       new THREE.CylinderGeometry(0.025, 0.025, 0.9),
       new THREE.MeshLambertMaterial({ color: 0x6b5030 })
@@ -205,20 +188,26 @@ export class Boat {
     mast.position.set(0, 0.55, -0.05);
     this.mesh.add(mast);
 
-    // Sail
     const sailGeo = new THREE.BufferGeometry();
-    sailGeo.setAttribute(
-      "position",
-      new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0, 0.55, 0, 0.35, 0.1, 0]), 3)
-    );
+    sailGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0, 0.55, 0, 0.35, 0.1, 0]), 3));
     sailGeo.computeVertexNormals();
     const sail = new THREE.Mesh(sailGeo, new THREE.MeshLambertMaterial({
       color: 0xeeeedd, side: THREE.DoubleSide, transparent: true, opacity: 0.9,
     }));
     sail.position.set(0.02, 0.15, -0.05);
     this.mesh.add(sail);
+    --- End Original Geometry --- */
 
-    // Lantern
+    // Load Miku Boat (GLTF Model)
+    const loader = new GLTFLoader();
+    // Path relative to public root
+    loader.load("models/miku-boat.glb", (gltf) => {
+      this.setModel(gltf.scene);
+    }, undefined, (err) => {
+      console.error("Failed to load miku-boat.glb", err);
+    });
+
+    // Lantern remains (for glow + pulse)
     const lantern = new THREE.PointLight(0xffcc55, 0.8, 8);
     lantern.position.set(0, 0.5, -0.4);
     lantern.castShadow = true;
@@ -342,6 +331,25 @@ export class Boat {
   getSpeed() {
     const v = this.body.velocity;
     return Math.sqrt(v.x * v.x + v.z * v.z);
+  }
+
+  /**
+   * Replaces current placeholder geometry with a GLTF model.
+   * Handles scale, orientation, and visibility toggling.
+   */
+  setModel(gltfScene, { scale = 2, rotationY = 96 } = {}) {
+    this._model = gltfScene;
+    gltfScene.scale.setScalar(scale);
+    gltfScene.rotation.y = rotationY;
+    gltfScene.position.y = 0.6;
+    this.mesh.add(gltfScene);
+
+    // If there were primitive children (original boat), hide them
+    this.mesh.children.forEach(child => {
+      if (child !== gltfScene && !child.isPointLight) {
+        child.visible = false;
+      }
+    });
   }
 
   dispose() {

@@ -219,7 +219,7 @@ class LyricBoard {
     let opacity = 1.0;
     if (this.age < 0.5) {
       opacity = this.age / 0.5;
-    } else if (this.age > this.lifetime - 2.0) {
+    } else if (this.age > this.lifetime - 1.5) {
       opacity = Math.max(0, (this.lifetime - this.age) / 2.0);
     }
 
@@ -260,27 +260,37 @@ class SkyLyricSystem {
 
   addPhrase(text, boatPos) {
     const canvas = document.createElement("canvas");
-    canvas.width = 256; canvas.height = 128;
+    canvas.width = 1024; 
+    canvas.height = 256;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, 256, 128);
+    ctx.fillRect(0, 0, 1024, 256);
+    
+    // Auto-scale font size to fit long lyrics
+    let fontSize = 70;
+    const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+    ctx.font = font(fontSize);
+    while (ctx.measureText(text).width > 980 && fontSize > 20) {
+      fontSize -= 5;
+      ctx.font = font(fontSize);
+    }
+    
     ctx.fillStyle = "white";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = 'bold 36px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif';
-    ctx.fillText(text, 128, 64);
+    ctx.fillText(text, 512, 128);
 
-    const data = ctx.getImageData(0, 0, 256, 128).data;
+    const data = ctx.getImageData(0, 0, 1024, 256).data;
     const points = [];
     
-    // Sample pixels step by 1.5 for much higher density (more particles)
-    for (let y = 0; y < 128; y += 4.0) { 
-      for (let x = 0; x < 256; x += 4.0) {
-        const i = (Math.floor(y) * 256 + Math.floor(x)) * 4;
+    // Sample pixels step by 1.0 (as you set earlier)
+    for (let y = 0; y < 256; y += 1.5) { 
+      for (let x = 0; x < 1024; x += 1.5) {
+        const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
         if (data[i] > 128) {
           points.push({ 
-            tx: (x - 128) * 0.12, // Slightly tighter spacing
-            ty: -(y - 64) * 0.12,  
+            tx: (x - 512) * 0.04, // Scaled down spacing because canvas is larger
+            ty: -(y - 128) * 0.04,  
             // Start scattered
             sx: (Math.random() - 0.5) * 25, 
             sy: (Math.random() - 0.5) * 25,
