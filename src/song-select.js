@@ -171,9 +171,7 @@ export class SongSelectScene {
     this.controls = new Controls();
     this.boat = new Boat(engine, this.controls);
     this.cam = new CameraController(engine);
-
-    this._camUpdatable = { update: () => this.cam.setTarget(this.boat.getPosition()) };
-    engine.addUpdatable(this._camUpdatable);
+    this.cam.attachBoat(this.boat);
 
     // 6 cards in a horizontal row
     SONGS.forEach((song, i) => {
@@ -228,7 +226,7 @@ export class SongSelectScene {
 
   dispose() {
     this.engine.removeUpdatable(this._updatable);
-    this.engine.removeUpdatable(this._camUpdatable);
+
     window.removeEventListener("mousemove", this._onMouseMove);
 
     this.water.dispose();

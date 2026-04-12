@@ -30,8 +30,7 @@ export class LakeScene {
     this.controls = new Controls();
     this.boat = new Boat(engine, this.controls);
     this.cam = new CameraController(engine);
-    this._camUpdatable = { update: () => this.cam.setTarget(this.boat.getPosition()) };
-    engine.addUpdatable(this._camUpdatable);
+    this.cam.attachBoat(this.boat);
 
     // Lyrics (uses song theme particle color)
     this.lyrics = new LyricManager(engine, this.boat, this.song.theme.particle);

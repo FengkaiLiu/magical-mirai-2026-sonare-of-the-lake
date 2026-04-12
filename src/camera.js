@@ -20,13 +20,19 @@ export class CameraController {
     // スムーズ追従
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);
     this.currentLook = new THREE.Vector3(0, 0, 0);
-    this.smoothing = 0.03; // 小さい = ゆったり (フレームレート非依存)
+    this.smoothing    = 0.08;  // フレームレート非依存 (boat follow)
+    this.skySmoothing = 0.025; // slow cinematic sweep into sky view
+    this._boatRef = null;
 
     // 初期位置
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(0, 0, 0);
 
     engine.addUpdatable(this);
+  }
+
+  attachBoat(boat) {
+    this._boatRef = boat;
   }
 
   setTarget(boatPosition) {
@@ -42,6 +48,7 @@ export class CameraController {
   }
 
   update(dt, elapsed) {
+    if (this._boatRef) this.targetPos = this._boatRef.getPosition();
     if (!this.targetPos) return;
 
     // 目標注視点: 船の少し前方、Chorus中は空高く且つ歌詞をセンターに
@@ -69,7 +76,8 @@ export class CameraController {
 
     // フレームレート非依存のスムーズ補間
     // 60fps でも 30fps でも同じ速度で追従する
-    const alpha = 1 - Math.pow(1 - this.smoothing, dt * 60);
+    const smooth = this.skyMode ? this.skySmoothing : this.smoothing;
+    const alpha = 1 - Math.pow(1 - smooth, dt * 60);
     this.currentPos.lerp(goalPos, alpha);
     this.currentLook.lerp(goalLook, alpha);
 

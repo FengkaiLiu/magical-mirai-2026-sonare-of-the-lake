@@ -7,6 +7,7 @@
  */
 
 import * as THREE from "three";
+import { Timer } from "three/examples/jsm/misc/Timer.js";
 import * as CANNON from "cannon-es";
 
 export class Engine {
@@ -66,10 +67,10 @@ export class Engine {
 
     // Physics timestep
     this.fixedTimeStep = 1 / 60;
-    this.maxSubSteps = 3;
+    this._accumulator = 0;
 
     // === Clock ===
-    this.clock = new THREE.Clock();
+    this.clock = new Timer();
     this.elapsed = 0;
 
     // === Objects to update each frame ===
@@ -112,20 +113,33 @@ export class Engine {
    */
   start() {
     const tick = () => {
-      const dt = Math.min(this.clock.getDelta(), 0.05); // clamp to 50ms max
-      this.elapsed = this.clock.getElapsedTime();
+      this.clock.update();
+      const dt = Math.min(this.clock.getDelta(), 0.05);
+      this.elapsed = this.clock.getElapsed();
 
-      // 1. Pre-step: input & forces (before physics solves)
-      for (const obj of this.updatables) {
-        if (obj.preStep) obj.preStep(dt, this.elapsed);
+      this._accumulator += dt;
+
+      // Fixed-step loop: each iteration is one full physics step
+      while (this._accumulator >= this.fixedTimeStep) {
+        // 1a. Save state for interpolation (before forces change anything)
+        for (const obj of this.updatables) {
+          if (obj.saveState) obj.saveState();
+        }
+        // 1b. Pre-step: input & forces
+        for (const obj of this.updatables) {
+          if (obj.preStep) obj.preStep(this.fixedTimeStep, this.elapsed);
+        }
+        // 2. Physics step (single fixed step)
+        this.world.step(this.fixedTimeStep);
+        this._accumulator -= this.fixedTimeStep;
       }
 
-      // 2. Physics step
-      this.world.step(this.fixedTimeStep, dt, this.maxSubSteps);
+      // alpha: how far through the next (not-yet-taken) step we are [0, 1)
+      const alpha = this._accumulator / this.fixedTimeStep;
 
-      // 3. Post-step: sync meshes, clamp positions, etc.
+      // 3. Post-step: sync meshes using interpolated state
       for (const obj of this.updatables) {
-        obj.update(dt, this.elapsed);
+        obj.update(dt, this.elapsed, alpha);
       }
 
       // 4. Render

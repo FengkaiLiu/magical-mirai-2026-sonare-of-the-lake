@@ -215,12 +215,13 @@ class LyricBoard {
     this.mesh.position.copy(this.body.position);
     this.mesh.quaternion.copy(this.body.quaternion);
 
-    // Opacity: fade in 0.5s, hold, fade out last 2s
+    // Opacity: fade in 0.5s, hold, fade out (duration controlled by fadeOutDuration)
+    const fadeOut = this.fadeOutDuration ?? 1.5;
     let opacity = 1.0;
-    if (this.age < 0.5) {
-      opacity = this.age / 0.5;
-    } else if (this.age > this.lifetime - 1.5) {
-      opacity = Math.max(0, (this.lifetime - this.age) / 2.0);
+    if (this.age < 0.25) {
+      opacity = this.age / 0.25;
+    } else if (this.age > this.lifetime - fadeOut) {
+      opacity = Math.max(0, (this.lifetime - this.age) / fadeOut);
     }
 
     // Apply opacity to all unique materials
@@ -259,6 +260,16 @@ class SkyLyricSystem {
   }
 
   addPhrase(text, boatPos) {
+    // Force existing phrases to fade out quickly before the new one appears
+    const QUICK_FADE = 0.6;
+    for (const p of this.phrases) {
+      const remaining = p.life - p.age;
+      if (remaining > QUICK_FADE) {
+        p.life = p.age + QUICK_FADE;
+        p.fadeOutDuration = QUICK_FADE;
+      }
+    }
+
     const canvas = document.createElement("canvas");
     canvas.width = 1024; 
     canvas.height = 256;
@@ -288,9 +299,9 @@ class SkyLyricSystem {
       for (let x = 0; x < 1024; x += 1.5) {
         const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
         if (data[i] > 128) {
-          points.push({ 
-            tx: (x - 512) * 0.04, // Scaled down spacing because canvas is larger
-            ty: -(y - 128) * 0.04,  
+          points.push({
+            tx: (x - 512) * 0.06,
+            ty: -(y - 128) * 0.06,
             // Start scattered
             sx: (Math.random() - 0.5) * 25, 
             sy: (Math.random() - 0.5) * 25,
@@ -309,11 +320,11 @@ class SkyLyricSystem {
     });
     
     // Use slightly larger particles
-    const particleGeo = new THREE.BoxGeometry(0.10, 0.10, 0.10);
+    const particleGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
     const imesh = new THREE.InstancedMesh(particleGeo, mat, points.length);
     const spawnZ = boatPos.z - 40; 
     const spawnX = boatPos.x;
-    const spawnY = 15; 
+    const spawnY = 25;
     
     imesh.position.set(spawnX, spawnY, spawnZ);
     
@@ -353,9 +364,10 @@ class SkyLyricSystem {
       // Float up slightly
       p.mesh.position.y += dt * 0.3;
 
+      const fadeOut = p.fadeOutDuration ?? 1.5;
       let opacity = 1.0;
-      if (p.age < 0.5) opacity = p.age / 0.5;
-      else if (p.age > p.life - 1.5) opacity = Math.max(0, (p.life - p.age) / 1.5);
+      if (p.age < 0.25) opacity = p.age / 0.25;
+      else if (p.age > p.life - fadeOut) opacity = Math.max(0, (p.life - p.age) / fadeOut);
       p.mesh.material.opacity = opacity;
     }
     
@@ -421,6 +433,15 @@ export class LyricManager {
     if (this.isChorus) {
       this.skySystem.addPhrase(text, boatPos);
     } else {
+      // Force existing boards to fade out quickly before the new one appears
+      const BOARD_QUICK_FADE = 0.6;
+      for (const s of this.sprites) {
+        const remaining = s.lifetime - s.age;
+        if (remaining > BOARD_QUICK_FADE) {
+          s.lifetime = s.age + BOARD_QUICK_FADE;
+          s.fadeOutDuration = BOARD_QUICK_FADE;
+        }
+      }
       this.sprites.push(new LyricBoard(text, this.engine, this.colorHex, boatPos));
     }
   }

@@ -7,18 +7,16 @@ import * as THREE from "three";
 
 const vertShader = /* glsl */ `
   uniform float uTime;
+  uniform float uEnergy;
   varying vec3 vWorldPos;
-  varying vec3 vWorldNormal;
 
   float wave(vec2 pos, vec2 dir, float len, float amp, float spd) {
     return amp * sin(3.1416 * dot(pos, dir) / len + spd * uTime);
   }
 
-  uniform float uEnergy;
-
   float waveHeight(vec2 p) {
-    float ampMod = 1.0 + uEnergy * 2.0; // Boost amplitude with energy
-    float spdMod = 1.0 + uEnergy * 1.5; // Boost speed with energy
+    float ampMod = 1.0 + uEnergy * 2.0;
+    float spdMod = 1.0 + uEnergy * 1.5;
     float w1 = wave(p, vec2(0.8, 0.6), 5.0, 0.08 * ampMod, 0.7 * spdMod);
     float w2 = wave(p, vec2(-0.5, 0.8), 8.0, 0.05 * ampMod, 0.5 * spdMod);
     float w3 = wave(p, vec2(0.3, -0.7), 3.0, 0.03 * ampMod, 1.0 * spdMod);
@@ -30,15 +28,6 @@ const vertShader = /* glsl */ `
   void main() {
     vec3 p = position;
     p.y += waveHeight(p.xz);
-
-    float d = 0.5;
-    float hR = waveHeight(p.xz + vec2(d, 0.0));
-    float hF = waveHeight(p.xz + vec2(0.0, d));
-    float hC = waveHeight(p.xz);
-    vec3 T = normalize(vec3(d, hR - hC, 0.0));
-    vec3 B = normalize(vec3(0.0, hF - hC, d));
-    vWorldNormal = normalize(cross(T, B));
-
     vec4 worldPos = modelMatrix * vec4(p, 1.0);
     vWorldPos = worldPos.xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -58,15 +47,18 @@ const fragShader = /* glsl */ `
   uniform float uEnergy;
 
   varying vec3 vWorldPos;
-  varying vec3 vWorldNormal;
 
   void main() {
-    vec3 N = normalize(vWorldNormal);
+    vec3 fdx = dFdx(vWorldPos);
+    vec3 fdy = dFdy(vWorldPos);
+    vec3 N = normalize(cross(fdx, fdy));
+    if (N.y < 0.0) N = -N;
+    if (abs(N.y) < 0.001) N = vec3(0.0, 1.0, 0.0);
     vec3 V = normalize(uCamPos - vWorldPos);
 
-    // Base color
+    // Base color: center = deep (dark), edges = shallow (light)
     float depth = smoothstep(0.0, 40.0, length(vWorldPos.xz));
-    vec3 col = mix(uShallow, uDeep, depth);
+    vec3 col = mix(uDeep, uShallow, depth);
 
     // Wave-based color variation
     col += vec3(0.02, 0.04, 0.05) * (vWorldPos.y * 2.0);
@@ -102,12 +94,12 @@ const fragShader = /* glsl */ `
     float cloudShadow = smoothstep(-0.1, 0.6, (n1 + n2) * 0.5);
     col *= mix(1.0, 0.72, cloudShadow * 0.45);
 
-    // Distance fog
+    // Distance haze toward horizon — blend into sky horizon color, not deep dark
     float fog = smoothstep(35.0, 55.0, length(vWorldPos.xz));
-    col = mix(col, uDeep * 0.8, fog);
+    col = mix(col, uSkyHorizon * 0.9, fog * 0.5);
 
-    // Depth-based transparency: near-shore slightly transparent, deep nearly opaque
-    float alpha = 0.88 + depth * 0.1;
+    // Transparency: deep center more opaque, shallow edges more transparent
+    float alpha = 0.98 - depth * 0.12;
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -138,7 +130,10 @@ export class Water {
       fragmentShader: fragShader,
       uniforms: this.uniforms,
       transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
     });
+    mat.extensions.derivatives = true;
 
     this.mesh = new THREE.Mesh(geo, mat);
     // ShaderMaterial does not auto-receive shadows without manual shadow map sampling

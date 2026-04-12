@@ -124,7 +124,7 @@ export class Boat {
     this.controls = controls;
 
     // === Cannon-es physics body ===
-    const shape = new CANNON.Box(new CANNON.Vec3(0.3, 0.12, 0.6));
+    const shape = new CANNON.Box(new CANNON.Vec3(1, 1, 1));
     this.body = new CANNON.Body({
       mass: 5,
       position: new CANNON.Vec3(0, 0.5, 0),
@@ -202,7 +202,7 @@ export class Boat {
     const loader = new GLTFLoader();
     // Path relative to public root
     loader.load("models/miku-boat.glb", (gltf) => {
-      this.setModel(gltf.scene);
+      this.setModel(gltf.scene, { offsetZ: 0.3 });
     }, undefined, (err) => {
       console.error("Failed to load miku-boat.glb", err);
     });
@@ -219,11 +219,20 @@ export class Boat {
     this.forwardForce = 25;
     this.turnTorque = 5;
 
+    // === Interpolation state ===
+    this._prevPos = new CANNON.Vec3(0, 0.5, 0);
+    this._prevQuat = new CANNON.Quaternion(0, 0, 0, 1);
+
     // === Wake Trail Particles ===
     this.trail = new ParticleTrail(engine);
     this.trailTimer = 0;
 
     engine.addUpdatable(this);
+  }
+
+  saveState() {
+    this._prevPos.copy(this.body.position);
+    this._prevQuat.copy(this.body.quaternion);
   }
 
   /**
@@ -283,29 +292,36 @@ export class Boat {
 
   /**
    * update — 物理演算後: メッシュ同期 + 範囲制限
+   * alpha: interpolation factor [0,1) between previous and current physics state
    */
-  update(dt, elapsed) {
+  update(dt, elapsed, alpha = 1) {
     const p = this.body.position;
     const quat = this.body.quaternion;
 
-    // 範囲制限
+    // 範囲制限 (applied to physics body)
     p.x = Math.max(-40, Math.min(40, p.x));
     p.z = Math.max(-40, Math.min(40, p.z));
 
-    // Three.js mesh を物理ボディに同期
+    // Interpolate position between previous and current physics state
+    const ix = this._prevPos.x + (p.x - this._prevPos.x) * alpha;
+    const iy = this._prevPos.y + (p.y - this._prevPos.y) * alpha;
+    const iz = this._prevPos.z + (p.z - this._prevPos.z) * alpha;
+
     const energy = (this.engine.env && this.engine.env.smoothedEnergy) || 0;
-    const wh = waveHeight(p.x, p.z, elapsed, energy);
-    
-    // HARD CLAMP: Prevent sinking below visual water surface
-    const finalY = Math.max(p.y, wh + 0.05);
-    
-    this.mesh.position.set(p.x, finalY, p.z);
-    this.mesh.quaternion.set(quat.x, quat.y, quat.z, quat.w);
+    const wh = waveHeight(ix, iz, elapsed, energy);
+    const finalY = Math.max(iy, wh + 0.05);
+
+    this.mesh.position.set(ix, finalY, iz);
+
+    // Slerp quaternion between previous and current
+    const iq = new CANNON.Quaternion();
+    this._prevQuat.slerp(quat, alpha, iq);
+    this.mesh.quaternion.set(iq.x, iq.y, iq.z, iq.w);
 
     // 微かなボブ
     this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
 
-    // Trail updatew
+    // Trail update
     this.trail.update(dt, elapsed);
     this.trailTimer += dt;
     if (this.trailTimer > 0.02) {
@@ -324,8 +340,8 @@ export class Boat {
   }
 
   getPosition() {
-    const p = this.body.position;
-    return new THREE.Vector3(p.x, p.y, p.z);
+    // Return interpolated mesh position so the camera follows smoothly
+    return this.mesh.position.clone();
   }
 
   getSpeed() {
@@ -337,11 +353,11 @@ export class Boat {
    * Replaces current placeholder geometry with a GLTF model.
    * Handles scale, orientation, and visibility toggling.
    */
-  setModel(gltfScene, { scale = 2, rotationY = 96 } = {}) {
+  setModel(gltfScene, { scale = 0.3, rotationY = Math.PI} = {}) {
     this._model = gltfScene;
     gltfScene.scale.setScalar(scale);
     gltfScene.rotation.y = rotationY;
-    gltfScene.position.y = 0.6;
+    gltfScene.position.set(0, 0, 2.2);
     this.mesh.add(gltfScene);
 
     // If there were primitive children (original boat), hide them
