@@ -133,7 +133,7 @@ export class Environment {
       });
       
       // Position and scale the terrain to fit around the lake
-      this.terrainModel.position.set(0, 0, 0); 
+      this.terrainModel.position.set(0, 12, 0);
       this.terrainModel.scale.set(1, 1, 1);
       
       scene.add(this.terrainModel);
