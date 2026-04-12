@@ -1,0 +1,115 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0a1a2e;
+  overflow: hidden;
+  font-family: "M PLUS Rounded 1c", "Yu Gothic", "Hiragino Sans", sans-serif;
+}
+
+#app canvas {
+  display: block;
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+/* Transition fade overlay */
+#transition-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+  z-index: 100;
+}
+#transition-overlay.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* Song select hint */
+#select-hint {
+  display: none;
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255,255,255,0.7);
+  font-size: 1.1rem;
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Loading overlay */
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,10,20,0.7);
+  color: #fff;
+  font-size: 1.3rem;
+  z-index: 50;
+  transition: opacity 0.4s;
+}
+#overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* HUD */
+#hud {
+  display: none;
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  right: 1rem;
+  align-items: center;
+  gap: 1rem;
+  z-index: 20;
+  color: rgba(255,255,255,0.85);
+  font-size: 0.95rem;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+}
+#hud.visible { display: flex; }
+
+.hud-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#pause-btn, #sky-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+#pause-btn:hover, #sky-btn:hover { background: rgba(255,255,255,0.25); }
+#sky-btn.active { 
+  background: rgba(64, 224, 208, 0.4); 
+  border-color: rgba(64, 224, 208, 0.8);
+}
+#sky-btn:active { transform: scale(0.95); }
+
+#song-info {
+  flex: 1;
+  text-align: center;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+#controls-hint {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  transition: opacity 1s;
+}
+
+#play-btn { display: none; }

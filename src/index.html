@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sonare of the Lake</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- State transition fade -->
+  <div id="transition-overlay"></div>
+
+  <!-- Song select hint -->
+  <div id="select-hint">Sail into a song to begin</div>
+
+  <!-- Play scene loading overlay -->
+  <div id="overlay">
+    <p>Loading...</p>
+  </div>
+
+  <!-- HUD (hidden until play scene) -->
+  <div id="hud">
+    <div class="hud-btns">
+      <button id="pause-btn">⏸</button>
+      <button id="sky-btn">🌌 Sky View</button>
+    </div>
+    <span id="time">0:00 / 0:00</span>
+    <span id="song-info"></span>
+    <span id="controls-hint">W A S D to sail</span>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
