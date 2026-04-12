@@ -1,31 +1,15 @@
 /**
  * ==========================================
- * LyricManager v7 — Draw Call Optimized
+ * LyricManager 
  * ==========================================
- * Changes from v6:
- *   - Shared geometry pool: 3 BoxGeometry (short/mid/long) reused by all planks
- *   - Shared wood materials: side + bottom are global singletons
- *     Only the top-face material is unique per plank (lyric texture)
- *   - Canvas downsized: 512 → 256px (viewed from 8m+, no visible diff)
- *   - Texture: mipmaps disabled (256px doesn't need them)
- *   - Shared CANNON.Box shapes per size (Cannon-es allows shape reuse)
- *   - Floating count tracked as counter, not .filter() per addPhrase
- *   - update() uses swap-remove instead of .filter() — O(1) per dead plank
- *   - Sinking: clones shared materials only when sink starts (lazy clone)
- *     so floating planks share everything
- *   - dispose() only releases owned resources
  */
 
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 
-// ─── Helpers ─────────────────────────────────────────────
-
 function damp(factor, dt) {
   return Math.pow(factor, dt * 60);
 }
-
-// ─── Lyric texture (256px) ───────────────────────────────
 
 function makeLyricTexture(text, canvasW, canvasH) {
   const c = document.createElement("canvas");
@@ -36,7 +20,6 @@ function makeLyricTexture(text, canvasW, canvasH) {
   x.fillStyle = "#a07848";
   x.fillRect(0, 0, c.width, c.height);
 
-  // Wood grain
   x.strokeStyle = "rgba(80,50,20,0.15)";
   x.lineWidth = 1.5;
   for (let i = 0; i < 5; i++) {
@@ -47,7 +30,6 @@ function makeLyricTexture(text, canvasW, canvasH) {
     x.stroke();
   }
 
-  // Font sizing (binary search)
   const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   const targetW = c.width * 0.88;
   let lo = 10, hi = c.height * 0.5;
@@ -74,8 +56,6 @@ function makeLyricTexture(text, canvasW, canvasH) {
   return tex;
 }
 
-// ─── Shared resources (created once, never disposed) ─────
-
 const PLANK_DIMS = {
   short: { w: 1.8, h: 0.08, d: 0.5 },
   mid:   { w: 2.8, h: 0.08, d: 0.5 },
@@ -94,8 +74,6 @@ const matWoodBottom = new THREE.MeshLambertMaterial({ color: 0x6B4E31 });
 
 const _plankForce = new CANNON.Vec3();
 
-// ─── Single Plank ────────────────────────────────────────
-
 class LyricPlank {
   constructor(text, engine, sizeKey, dropPos) {
     this.engine = engine;
@@ -105,36 +83,32 @@ class LyricPlank {
 
     const dims = PLANK_DIMS[sizeKey];
 
-    // Unique per plank: lyric texture + top material
     this.lyricTex = makeLyricTexture(text, 256, Math.round(256 * (dims.d / dims.w)));
     this.topMat = new THREE.MeshLambertMaterial({ map: this.lyricTex });
 
-    // [+x, -x, +y, -y, +z, -z] — shared sides/bottom, unique top
     this.materials = [
       matWoodSide, matWoodSide,
       this.topMat, matWoodBottom,
       matWoodSide, matWoodSide,
     ];
 
-    // Mesh (shared geometry)
     this.mesh = new THREE.Mesh(sharedGeo[sizeKey], this.materials);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     engine.scene.add(this.mesh);
 
-    // Physics body (shared shape)
+    // Spawns them 3 to 4.5 units UNDER the water so they float up
     this.body = new CANNON.Body({
       mass: 2,
-      position: new CANNON.Vec3(dropPos.x, 5 + Math.random() * 2, dropPos.z),
+      position: new CANNON.Vec3(dropPos.x, -3 - Math.random() * 1.5, dropPos.z),
       material: engine.materials.lyric,
       linearDamping: 0.6,
       angularDamping: 0.85,
-      allowSleep: false,  // MUST stay awake — sleeping bodies don't collide
+      allowSleep: false, 
     });
     this.body.addShape(sharedShape[sizeKey]);
     engine.world.addBody(this.body);
 
-    // Sink-specific cloned materials (created lazily in startSink)
     this._sinkSide = null;
     this._sinkBottom = null;
   }
@@ -147,23 +121,19 @@ class LyricPlank {
     const vel = body.velocity;
 
     if (!this.sinking) {
-      // Buoyancy spring — waterLevel must match boat.js
       _plankForce.set(0, 125 * (0.35 - p.y) - 20 * vel.y, 0);
       body.applyForce(_plankForce);
 
-      // Restoring torque
       const q = body.quaternion;
       body.angularVelocity.x += (-q.x * 40 - body.angularVelocity.x * 4) * dt;
       body.angularVelocity.z += (-q.z * 40 - body.angularVelocity.z * 4) * dt;
 
-      // Water drag
       if (p.y < 0.2) {
         const d = damp(0.995, dt);
         vel.x *= d;
         vel.z *= d;
       }
     } else {
-      // Sinking
       this.sinkTimer += dt;
 
       _plankForce.set(0, -2.5, 0);
@@ -176,7 +146,6 @@ class LyricPlank {
       body.angularVelocity.x += (Math.random() - 0.5) * 0.6 * dt;
       body.angularVelocity.z += (Math.random() - 0.5) * 0.3 * dt;
 
-      // Fade all cloned materials
       const opacity = Math.max(0, 1 - this.sinkTimer * 0.3);
       for (const mat of this.materials) {
         mat.transparent = true;
@@ -185,7 +154,6 @@ class LyricPlank {
       if (opacity <= 0) this.alive = false;
     }
 
-    // Sync mesh
     this.mesh.position.copy(p);
     this.mesh.quaternion.set(
       body.quaternion.x, body.quaternion.y,
@@ -198,7 +166,6 @@ class LyricPlank {
     this.sinking = true;
     this.body.collisionResponse = false;
 
-    // Clone shared materials so fading doesn't affect other planks
     this._sinkSide = matWoodSide.clone();
     this._sinkBottom = matWoodBottom.clone();
     this.materials = [
@@ -212,16 +179,12 @@ class LyricPlank {
   dispose() {
     this.engine.scene.remove(this.mesh);
     this.engine.world.removeBody(this.body);
-    // Only dispose owned resources
     this.lyricTex.dispose();
     this.topMat.dispose();
     if (this._sinkSide) this._sinkSide.dispose();
     if (this._sinkBottom) this._sinkBottom.dispose();
-    // sharedGeo, matWoodSide, matWoodBottom, sharedShape are NEVER disposed
   }
 }
-
-// ─── LyricManager ────────────────────────────────────────
 
 export class LyricManager {
   constructor(engine, boat) {
@@ -230,16 +193,11 @@ export class LyricManager {
     this.planks = [];
     this.floatingCount = 0;
     this.lastPhraseTime = -1;
-    this.ready = false;
+    this.ready = true;
 
-    this._loadModels();
     this._fwdVec = new CANNON.Vec3();
 
     engine.addUpdatable(this);
-  }
-
-  async _loadModels() {
-    this.ready = true;
   }
 
   _pickSizeKey(text) {
@@ -282,7 +240,6 @@ export class LyricManager {
       this.lastPhraseTime = startTime;
     }
 
-    // Sink oldest floating if 2+ are afloat (linear scan, but only 2-3 items)
     if (this.floatingCount >= 2) {
       for (const p of this.planks) {
         if (!p.sinking && p.alive) {
@@ -302,17 +259,14 @@ export class LyricManager {
   update(dt, elapsed) {
     for (const p of this.planks) p.update(dt);
 
-    // Swap-remove dead planks: O(1) per removal, no array rebuild
     let i = 0;
     while (i < this.planks.length) {
       const p = this.planks[i];
       if (!p.alive) {
-        if (!p.sinking) this.floatingCount--; // safety
+        if (!p.sinking) this.floatingCount--; 
         p.dispose();
-        // Swap last element into this slot
         this.planks[i] = this.planks[this.planks.length - 1];
         this.planks.pop();
-        // Don't increment i — re-check the swapped element
       } else {
         i++;
       }
