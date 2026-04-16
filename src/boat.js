@@ -51,8 +51,8 @@ class ParticleTrail {
       const wh = waveHeight(pos.x, pos.z, 0, energy);
 
       // Distinct spawn points at the rear quarters of the hull
-      const sideOffset = side * 0.6; // Wider spawn to prevent lines crossing
-      const backOffset = 0.6;
+      const sideOffset = side * 0.4; // Wider spawn to prevent lines crossing
+      const backOffset = 1.4;
       
       // Calculate world-space spawn position for this side
       p.mesh.position.copy(pos);
@@ -124,7 +124,7 @@ export class Boat {
     this.controls = controls;
 
     // === Cannon-es physics body ===
-    const shape = new CANNON.Box(new CANNON.Vec3(1, 1, 1));
+    const shape = new CANNON.Box(new CANNON.Vec3(0.4, 1, 0.5));
     this.body = new CANNON.Body({
       mass: 5,
       position: new CANNON.Vec3(0, 0.5, 0),
@@ -357,7 +357,7 @@ export class Boat {
     this._model = gltfScene;
     gltfScene.scale.setScalar(scale);
     gltfScene.rotation.y = rotationY;
-    gltfScene.position.set(0, 0, 2.2);
+    gltfScene.position.set(0, 0, 0);
     this.mesh.add(gltfScene);
 
     // If there were primitive children (original boat), hide them

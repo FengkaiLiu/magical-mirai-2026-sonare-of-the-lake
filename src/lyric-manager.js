@@ -1,261 +1,174 @@
 /**
- * LyricManager — floating wooden board system.
- * Each lyric phrase spawns a wooden board mesh that floats on the water surface with physics.
- * Boards bob with the waves, have buoyancy, and fade out over time.
+ * LyricManager — Glowing Water Decal system.
+ * Each lyric phrase spawns a luminous plane that rides the wave surface.
+ * No physics — Y position is computed directly from waveHeight each frame,
+ * so the text can never sink below the water.
  */
 
 import * as THREE from "three";
-import * as CANNON from "cannon-es";
 
-function waveHeight(x, z, t) {
+function waveHeight(x, z, t, energy = 0) {
+  const ampMod = 1.0 + energy * 2.0;
+  const spdMod = 1.0 + energy * 1.5;
   const w = (px, pz, dx, dz, len, amp, spd) =>
-    amp * Math.sin(Math.PI * (px * dx + pz * dz) / len + spd * t);
-  return w(x, z, 0.8, 0.6, 5.0, 0.08, 0.7)
-    + w(x, z, -0.5, 0.8, 8.0, 0.05, 0.5)
-    + w(x, z, 0.3, -0.7, 3.0, 0.03, 1.0)
-    + w(x, z, 0.6, -0.4, 1.5, 0.012, 1.8)
-    + w(x, z, -0.3, 0.9, 2.0, 0.015, 1.4);
+    amp * ampMod * Math.sin(Math.PI * (px * dx + pz * dz) / len + spd * spdMod * t);
+  return w(x, z,  0.8,  0.6, 5.0, 0.08, 0.7)
+       + w(x, z, -0.5,  0.8, 8.0, 0.05, 0.5)
+       + w(x, z,  0.3, -0.7, 3.0, 0.03, 1.0)
+       + w(x, z,  0.6, -0.4, 1.5, 0.012, 1.8)
+       + w(x, z, -0.3,  0.9, 2.0, 0.015, 1.4);
 }
 
-function makeTextTexture(text, colorHex) {
+/**
+ * Renders luminous text onto a 512×256 canvas using four glow passes.
+ * The canvas background is fully transparent so AdditiveBlending on the
+ * mesh only adds light where the glow/text pixels are.
+ */
+function makeGlowTexture(text, colorHex = 0x00eeff) {
+  const W = 512, H = 256;
   const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 256;
+  canvas.width = W;
+  canvas.height = H;
   const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, 256, 256);
+  ctx.clearRect(0, 0, W, H);
 
-  const hexStr = "#" + colorHex.toString(16).padStart(6, "0");
+  const r = (colorHex >> 16) & 255;
+  const g = (colorHex >>  8) & 255;
+  const b =  colorHex        & 255;
+  const hexStr = `#${colorHex.toString(16).padStart(6, "0")}`;
 
-  // Radial gradient fill: bright highlight at top-left → translucent blue at edge
-  const grad = ctx.createRadialGradient(85, 85, 8, 128, 128, 120);
-  grad.addColorStop(0, "rgba(255, 255, 255, 0.65)");
-  grad.addColorStop(0.4, "rgba(180, 220, 255, 0.35)");
-  grad.addColorStop(1, "rgba(100, 180, 255, 0.18)");
-
-  // Clip to circle, fill bubble
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(128, 128, 120, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.restore();
-
-  // Border ring
-  ctx.beginPath();
-  ctx.arc(128, 128, 120, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(200, 235, 255, 0.7)";
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
-
-  // Glossy highlight: small rotated ellipse at top-left
-  ctx.save();
-  ctx.translate(55, 50);
-  ctx.rotate(-0.6);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, 20, 9, 0, 0, Math.PI * 2);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
-  ctx.fill();
-  ctx.restore();
-
-  // Text centered in bubble, auto-sized to fit within 200px diameter
-  let fontSize = 52;
-  const fontFace = (s) =>
-    `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
-  ctx.font = fontFace(fontSize);
-  while (ctx.measureText(text).width > 180 && fontSize > 24) {
-    fontSize -= 2;
-    ctx.font = fontFace(fontSize);
-  }
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = hexStr;
-  ctx.shadowBlur = 10;
-  ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-  ctx.fillText(text, 128, 128);
-
-  return new THREE.CanvasTexture(canvas);
-}
-
-function makeBoardTexture(text) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-
-  // Wood background
-  ctx.fillStyle = "#c09060";
-  ctx.fillRect(0, 0, 512, 256);
-
-  // Wood grain lines
-  ctx.strokeStyle = "rgba(70,40,10,0.18)";
-  ctx.lineWidth = 3;
-  for (let i = 0; i < 8; i++) {
-    const gy = 256 * (0.1 + Math.random() * 0.8);
-    ctx.beginPath();
-    ctx.moveTo(0, gy);
-    ctx.lineTo(512, gy + (Math.random() - 0.5) * 20);
-    ctx.stroke();
-  }
-
-  // Border
-  ctx.strokeStyle = "rgba(50,25,8,0.55)";
-  ctx.lineWidth = 8;
-  ctx.strokeRect(8, 8, 496, 240);
-
-  // Text centered, auto-sized to fit
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  let fontSize = 40;
+  let fontSize = 56;
   const fontFace = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   ctx.font = fontFace(fontSize);
-  while (ctx.measureText(text).width > 480 && fontSize > 18) {
+  while (ctx.measureText(text).width > 480 && fontSize > 22) {
     fontSize -= 2;
     ctx.font = fontFace(fontSize);
   }
-  ctx.fillStyle = "#18080a";
-  ctx.strokeStyle = "rgba(255,230,180,0.5)";
-  ctx.lineWidth = 2;
-  ctx.strokeText(text, 256, 128);
-  ctx.fillText(text, 256, 128);
+  ctx.textAlign    = "center";
+  ctx.textBaseline = "middle";
+
+  // Pass 1 — wide outer halo in theme colour
+  ctx.shadowColor = hexStr;
+  ctx.shadowBlur  = 32;
+  ctx.fillStyle   = `rgba(${r},${g},${b},0.18)`;
+  ctx.fillText(text, W / 2, H / 2);
+
+  // Pass 2 — mid glow
+  ctx.shadowBlur = 16;
+  ctx.fillStyle  = `rgba(${r},${g},${b},0.45)`;
+  ctx.fillText(text, W / 2, H / 2);
+
+  // Pass 3 — tight inner glow
+  ctx.shadowColor = "white";
+  ctx.shadowBlur  = 8;
+  ctx.fillStyle   = `rgba(${r},${g},${b},0.8)`;
+  ctx.fillText(text, W / 2, H / 2);
+
+  // Pass 4 — sharp white core
+  ctx.shadowBlur = 3;
+  ctx.fillStyle  = "rgba(255,255,255,0.95)";
+  ctx.fillText(text, W / 2, H / 2);
 
   return new THREE.CanvasTexture(canvas);
 }
 
-let sharedBoardGeo = null;
-let sharedBoardShape = null;
+// Shared horizontal plane geometry (2:1 aspect matches the 512×256 canvas).
+// rotateX is baked into the vertices so each mesh transform is independent.
+let _decalGeo = null;
+function getDecalGeo() {
+  if (!_decalGeo) {
+    _decalGeo = new THREE.PlaneGeometry(2.8, 1.4);
+    _decalGeo.rotateX(-Math.PI / 2); // lay flat in XZ plane
+  }
+  return _decalGeo;
+}
 
-class LyricBoard {
+class WaterDecal {
   constructor(text, engine, colorHex, boatPos) {
-    this.engine = engine;
-    this.alive = true;
-    this.age = 0;
+    this.engine   = engine;
+    this.alive    = true;
+    this.age      = 0;
     this.lifetime = 8.0;
 
-    this.texture = makeBoardTexture(text);
-
-    if (!sharedBoardGeo) sharedBoardGeo = new THREE.BoxGeometry(2.5, 0.1, 1.2);
-    if (!sharedBoardShape) sharedBoardShape = new CANNON.Box(new CANNON.Vec3(1.25, 0.05, 0.6));
-
-    // Materials: wood sides + textured top
-    const woodSide = new THREE.MeshLambertMaterial({ color: 0x8b6030 });
-    const topMat = new THREE.MeshLambertMaterial({ map: this.texture });
-    // BoxGeometry face order: [+x, -x, +y (top), -y, +z, -z]
-    this.mesh = new THREE.Mesh(
-      sharedBoardGeo,
-      [woodSide, woodSide, topMat, woodSide, woodSide, woodSide]
-    );
-    this.mesh.castShadow = true;
-
-    // Initial position: offset away from boat at water surface
-    const spawnAngle = Math.random() * Math.PI * 2;
-    const spawnDist = 3.0 + Math.random() * 2.0; // 3-5 units away
-    const spawnX = boatPos.x + Math.cos(spawnAngle) * spawnDist;
-    const spawnZ = boatPos.z + Math.sin(spawnAngle) * spawnDist;
-    const initY = waveHeight(spawnX, spawnZ, 0) + 0.05;
-    this.mesh.position.set(spawnX, initY, spawnZ);
-
-    // Physics body
-    this.body = new CANNON.Body({
-      mass: 0.5,
-      material: engine.materials.lyric,
-      linearDamping: 0.7,
-      angularDamping: 0.9,
-    });
-    this.body.addShape(sharedBoardShape);
-    // Lock rotation on X and Z axes — board stays flat
-    this.body.angularFactor.set(0, 1, 0);
-    this.body.position.copy(this.mesh.position);
-
-    // Small random kick away from boat
+    // Spawn at a random offset around the boat
     const angle = Math.random() * Math.PI * 2;
-    const kickDist = 1.0 + Math.random() * 0.5;
-    this.body.velocity.set(
-      Math.cos(angle) * kickDist,
-      0,
-      Math.sin(angle) * kickDist
-    );
+    const dist  = 3.0 + Math.random() * 2.0;
+    this.x = boatPos.x + Math.cos(angle) * dist;
+    this.z = boatPos.z + Math.sin(angle) * dist;
 
-    engine.world.addBody(this.body);
+    // Drift slowly outward
+    this.vx = Math.cos(angle) * (0.3 + Math.random() * 0.4);
+    this.vz = Math.sin(angle) * (0.3 + Math.random() * 0.4);
+
+    const texture = makeGlowTexture(text, colorHex);
+
+    this.material = new THREE.MeshBasicMaterial({
+      map:         texture,
+      transparent: true,
+      opacity:     0,
+      depthWrite:  false,
+      side:        THREE.DoubleSide,
+      blending:    THREE.AdditiveBlending,
+    });
+
+    this.mesh = new THREE.Mesh(getDecalGeo(), this.material);
+    // Random yaw so each decal faces a different direction on the water
+    this.mesh.rotation.y = Math.random() * Math.PI * 2;
+    this.mesh.renderOrder = 1; // render after water (renderOrder 0)
+
+    const energy = (engine.env && engine.env.smoothedEnergy) || 0;
+    const initY  = waveHeight(this.x, this.z, 0, energy) + 0.15;
+    this.mesh.position.set(this.x, initY, this.z);
+
     engine.scene.add(this.mesh);
-  }
-
-  preStep(dt, elapsed) {
-    if (!this.alive) return;
-
-    // Buoyancy: strong spring force toward wave surface
-    const wx = this.body.position.x;
-    const wz = this.body.position.z;
-    const targetY = waveHeight(wx, wz, elapsed) + 0.05;
-    const diff = targetY - this.body.position.y;
-    // Strong spring constant + damping
-    const springF = diff * 50 - this.body.velocity.y * 5;
-    this.body.applyForce(
-      new CANNON.Vec3(0, springF * this.body.mass, 0),
-      this.body.position
-    );
-
-    // Hard clamp: never sink below water surface
-    if (this.body.position.y < 0.0) {
-      this.body.position.y = 0.0;
-      this.body.velocity.y = Math.max(this.body.velocity.y, 0);
-    }
   }
 
   update(dt, elapsed) {
     if (!this.alive) return;
     this.age += dt;
-
     if (this.age >= this.lifetime) {
       this.alive = false;
       return;
     }
 
-    // Sync mesh to physics body
-    this.mesh.position.copy(this.body.position);
-    this.mesh.quaternion.copy(this.body.quaternion);
+    // Drift
+    this.x += this.vx * dt;
+    this.z += this.vz * dt;
 
-    // Opacity: fade in 0.5s, hold, fade out (duration controlled by fadeOutDuration)
+    // Strictly bind Y to the wave surface — can never sink
+    const energy = (this.engine.env && this.engine.env.smoothedEnergy) || 0;
+    const wh = waveHeight(this.x, this.z, elapsed, energy);
+    this.mesh.position.set(this.x, wh + 0.15, this.z);
+
+    // Opacity: 0.4 s fade-in → hold → fade-out
     const fadeOut = this.fadeOutDuration ?? 1.5;
     let opacity = 1.0;
-    if (this.age < 0.25) {
-      opacity = this.age / 0.25;
+    if (this.age < 0.4) {
+      opacity = this.age / 0.4;
     } else if (this.age > this.lifetime - fadeOut) {
       opacity = Math.max(0, (this.lifetime - this.age) / fadeOut);
     }
-
-    // Apply opacity to all unique materials
-    const seen = new Set();
-    for (const mat of this.mesh.material) {
-      if (!seen.has(mat)) {
-        mat.transparent = true;
-        mat.opacity = opacity;
-        seen.add(mat);
-      }
-    }
+    // Pulse brightness with bass energy
+    this.material.opacity = Math.min(1.0, opacity * (1.0 + energy * 0.35));
   }
 
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
     this.engine.scene.remove(this.mesh);
-    this.engine.world.removeBody(this.body);
-    // Note: intentionally not disposing sharedBoardGeo or sharedBoardShape.
-    const seen = new Set();
-    for (const mat of this.mesh.material) {
-      if (mat && !seen.has(mat)) { mat.dispose(); seen.add(mat); }
-    }
-    this.texture.dispose();
+    this.material.map?.dispose();
+    this.material.dispose();
+    // _decalGeo is shared — do NOT dispose it here
     this.engine = null;
   }
 }
 
 class SkyLyricSystem {
   constructor(engine, colorHex) {
-    this.engine = engine;
+    this.engine   = engine;
     this.colorHex = colorHex;
-    this.phrases = [];
-    
+    this.phrases  = [];
+
     this.particleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
   }
 
@@ -271,12 +184,12 @@ class SkyLyricSystem {
     }
 
     const canvas = document.createElement("canvas");
-    canvas.width = 1024; 
+    canvas.width  = 1024;
     canvas.height = 256;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "black";
     ctx.fillRect(0, 0, 1024, 256);
-    
+
     // Auto-scale font size to fit long lyrics
     let fontSize = 70;
     const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
@@ -285,56 +198,49 @@ class SkyLyricSystem {
       fontSize -= 5;
       ctx.font = font(fontSize);
     }
-    
-    ctx.fillStyle = "white";
-    ctx.textAlign = "center";
+
+    ctx.fillStyle    = "white";
+    ctx.textAlign    = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 512, 128);
 
-    const data = ctx.getImageData(0, 0, 1024, 256).data;
+    const data   = ctx.getImageData(0, 0, 1024, 256).data;
     const points = [];
-    
-    // Sample pixels step by 1.0 (as you set earlier)
-    for (let y = 0; y < 256; y += 1.5) { 
+
+    for (let y = 0; y < 256; y += 1.5) {
       for (let x = 0; x < 1024; x += 1.5) {
         const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
         if (data[i] > 128) {
           points.push({
             tx: (x - 512) * 0.06,
             ty: -(y - 128) * 0.06,
-            // Start scattered
-            sx: (Math.random() - 0.5) * 25, 
+            sx: (Math.random() - 0.5) * 25,
             sy: (Math.random() - 0.5) * 25,
-            sz: (Math.random() - 0.5) * 25
+            sz: (Math.random() - 0.5) * 25,
           });
         }
       }
     }
-    
+
     if (points.length === 0) return;
-    
-    const mat = new THREE.MeshBasicMaterial({ 
-      color: 0xffffff, // Force bright white for maximum contrast
-      transparent: true, 
-      opacity: 0.0 
+
+    const mat = new THREE.MeshBasicMaterial({
+      color:       0xffffff,
+      transparent: true,
+      opacity:     0.0,
     });
-    
-    // Use slightly larger particles
+
     const particleGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
     const imesh = new THREE.InstancedMesh(particleGeo, mat, points.length);
-    const spawnZ = boatPos.z - 40; 
-    const spawnX = boatPos.x;
-    const spawnY = 25;
-    
-    imesh.position.set(spawnX, spawnY, spawnZ);
-    
+    imesh.position.set(boatPos.x, 25, boatPos.z - 40);
     this.engine.scene.add(imesh);
-    this.phrases.push({ 
-      mesh: imesh, 
-      geo: particleGeo, // Store geo for disposal
-      points: points,
-      life: 6.0, 
-      age: 0 
+
+    this.phrases.push({
+      mesh: imesh,
+      geo:  particleGeo,
+      points,
+      life: 6.0,
+      age:  0,
     });
   }
 
@@ -342,35 +248,31 @@ class SkyLyricSystem {
     const dummy = new THREE.Object3D();
     for (const p of this.phrases) {
       p.age += dt;
-      
-      // Animation progress: 0 to 1 over first 1.5s
+
       const progress = Math.min(1.0, p.age / 1.5);
-      const ease = 1.0 - Math.pow(1.0 - progress, 3); // cubic out
-      
+      const ease = 1.0 - Math.pow(1.0 - progress, 3); // cubic ease-out
+
       for (let i = 0; i < p.points.length; i++) {
         const pt = p.points[i];
-        const x = THREE.MathUtils.lerp(pt.sx, pt.tx, ease);
-        const y = THREE.MathUtils.lerp(pt.sy, pt.ty, ease);
-        const z = THREE.MathUtils.lerp(pt.sz, 0, ease);
-        
-        dummy.position.set(x, y, z);
-        // Larger "star" pop effect
+        dummy.position.set(
+          THREE.MathUtils.lerp(pt.sx, pt.tx, ease),
+          THREE.MathUtils.lerp(pt.sy, pt.ty, ease),
+          THREE.MathUtils.lerp(pt.sz, 0, ease),
+        );
         dummy.scale.setScalar(1.2 + Math.sin(p.age * 3 + i) * 0.4);
         dummy.updateMatrix();
         p.mesh.setMatrixAt(i, dummy.matrix);
       }
       p.mesh.instanceMatrix.needsUpdate = true;
-      
-      // Float up slightly
       p.mesh.position.y += dt * 0.3;
 
-      const fadeOut = p.fadeOutDuration ?? 1.5;
-      let opacity = 1.0;
+      const fadeOut  = p.fadeOutDuration ?? 1.5;
+      let   opacity  = 1.0;
       if (p.age < 0.25) opacity = p.age / 0.25;
       else if (p.age > p.life - fadeOut) opacity = Math.max(0, (p.life - p.age) / fadeOut);
       p.mesh.material.opacity = opacity;
     }
-    
+
     this.phrases = this.phrases.filter(p => {
       if (p.age > p.life) {
         this.engine.scene.remove(p.mesh);
@@ -395,16 +297,16 @@ class SkyLyricSystem {
 
 export class LyricManager {
   constructor(engine, boat, colorHex = 0xffffff) {
-    this.engine = engine;
-    this.boat = boat;
-    this.colorHex = colorHex;
-    this.isChorus = false;
+    this.engine    = engine;
+    this.boat      = boat;
+    this.colorHex  = colorHex;
+    this.isChorus  = false;
     this.skySystem = new SkyLyricSystem(engine, colorHex);
-    this.sprites = [];
+    this.sprites   = [];
     this.currentText = "";
     this._updatable = {
       preStep: (dt, elapsed) => this._preStep(dt, elapsed),
-      update: (dt, elapsed) => this._update(dt, elapsed),
+      update:  (dt, elapsed) => this._update(dt, elapsed),
     };
     engine.addUpdatable(this._updatable);
   }
@@ -433,7 +335,7 @@ export class LyricManager {
     if (this.isChorus) {
       this.skySystem.addPhrase(text, boatPos);
     } else {
-      // Force existing boards to fade out quickly before the new one appears
+      // Quick-fade existing decals so new text feels fresh
       const BOARD_QUICK_FADE = 0.6;
       for (const s of this.sprites) {
         const remaining = s.lifetime - s.age;
@@ -442,7 +344,7 @@ export class LyricManager {
           s.fadeOutDuration = BOARD_QUICK_FADE;
         }
       }
-      this.sprites.push(new LyricBoard(text, this.engine, this.colorHex, boatPos));
+      this.sprites.push(new WaterDecal(text, this.engine, this.colorHex, boatPos));
     }
   }
 
