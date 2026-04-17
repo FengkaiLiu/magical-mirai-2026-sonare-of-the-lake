@@ -61,6 +61,11 @@ export class FishLyricSystem {
     this._formations.push(formation);
   }
 
+  /** Fade out and discard all active formations immediately */
+  clear() {
+    for (const f of this._formations) f.startFade();
+  }
+
   /** Trigger a color shift on all active formations (called by note collision) */
   triggerColorShift(hexColor, duration = 3.0) {
     for (const f of this._formations) f.triggerColorShift(hexColor, duration);
@@ -71,9 +76,10 @@ export class FishLyricSystem {
 
   update(dt, elapsed) {
     const boatPos = this.boat.getPosition();
+    const boatVel = this.boat.body.velocity; // CANNON.Vec3 — live reference
     for (let i = this._formations.length - 1; i >= 0; i--) {
       const f = this._formations[i];
-      f.update(dt, elapsed, boatPos);
+      f.update(dt, elapsed, boatPos, boatVel);
       if (f.faded) {
         f.dispose();
         this._formations.splice(i, 1);

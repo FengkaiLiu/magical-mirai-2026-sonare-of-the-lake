@@ -223,6 +223,10 @@ export class Boat {
     this._prevPos = new CANNON.Vec3(0, 0.5, 0);
     this._prevQuat = new CANNON.Quaternion(0, 0, 0, 1);
 
+    // === Pre-allocated reusables (avoid per-frame heap allocation) ===
+    this._fwdVec  = new CANNON.Vec3(0, 0, -1);  // reused in preStep + trail branch
+    this._interpQ = new CANNON.Quaternion();      // reused in update interpolation
+
     // === Wake Trail Particles ===
     this.trail = new ParticleTrail(engine);
     this.trailTimer = 0;
@@ -249,12 +253,13 @@ export class Boat {
     this.body.velocity.y += buoyancy * dt;
     this.body.velocity.y *= 0.9; // 水の阻尼
 
-    // 船の向き
+    // 船の向き (reuse pre-allocated _fwdVec — used only within this synchronous block)
     const quat = this.body.quaternion;
-    const forward = new CANNON.Vec3(0, 0, -1);
-    quat.vmult(forward, forward);
-    forward.y = 0;
-    forward.normalize();
+    this._fwdVec.set(0, 0, -1);
+    quat.vmult(this._fwdVec, this._fwdVec);
+    this._fwdVec.y = 0;
+    this._fwdVec.normalize();
+    const forward = this._fwdVec;
 
     const vel = this.body.velocity;
 
@@ -313,10 +318,9 @@ export class Boat {
 
     this.mesh.position.set(ix, finalY, iz);
 
-    // Slerp quaternion between previous and current
-    const iq = new CANNON.Quaternion();
-    this._prevQuat.slerp(quat, alpha, iq);
-    this.mesh.quaternion.set(iq.x, iq.y, iq.z, iq.w);
+    // Slerp quaternion between previous and current (reuse pre-allocated _interpQ)
+    this._prevQuat.slerp(quat, alpha, this._interpQ);
+    this.mesh.quaternion.set(this._interpQ.x, this._interpQ.y, this._interpQ.z, this._interpQ.w);
 
     // 微かなボブ
     this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
@@ -330,12 +334,13 @@ export class Boat {
       const v = this.body.velocity;
       const speed = Math.sqrt(v.x * v.x + v.z * v.z);
 
-      const forward = new CANNON.Vec3(0, 0, -1);
-      quat.vmult(forward, forward);
-      forward.y = 0;
-      forward.normalize();
+      // Reuse _fwdVec — trail branch is synchronous and runs after preStep is done
+      this._fwdVec.set(0, 0, -1);
+      quat.vmult(this._fwdVec, this._fwdVec);
+      this._fwdVec.y = 0;
+      this._fwdVec.normalize();
 
-      this.trail.spawn(this.mesh.position, forward, speed);
+      this.trail.spawn(this.mesh.position, this._fwdVec, speed);
     }
   }
 

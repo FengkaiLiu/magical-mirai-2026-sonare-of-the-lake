@@ -102,13 +102,25 @@ export class LakeScene {
         if (timeTxt) {
           timeTxt.textContent = `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
         }
+
+        // Auto chorus: switch sky mode at manually defined time ranges
+        const inChorus = (this.song.chorus || []).some(([s, e]) => pos >= s && pos < e);
+        if (inChorus !== this._autoChorus) {
+          this._autoChorus = inChorus;
+          if (this.skyMode !== inChorus) this.toggleSkyMode();
+        }
+
+        // Feed lyrics to exactly ONE system — sky or lake, never both
         const phrase = this.player.video?.findPhrase(pos);
         const phraseText = phrase?.text ?? null;
         if (phraseText !== this._lastPhraseText) {
           this._lastPhraseText = phraseText;
           if (phraseText) {
-            this.fishLyrics.addPhrase(phraseText);
-            if (this.skyMode) this.lyrics.addPhrase(phraseText);
+            if (this.skyMode) {
+              this.lyrics.addPhrase(phraseText);
+            } else {
+              this.fishLyrics.addPhrase(phraseText);
+            }
           }
         }
       },
@@ -129,6 +141,7 @@ export class LakeScene {
 
     // Sky Toggler
     this.skyMode = false;
+    this._autoChorus = false; // tracks whether current sky state was auto-triggered
     const skyBtn = document.getElementById("sky-btn");
     skyBtn?.addEventListener("click", () => this.toggleSkyMode());
   }
@@ -142,6 +155,12 @@ export class LakeScene {
     }
     this.cam.setSkyMode(this.skyMode);
     this.lyrics.setChorusMode(this.skyMode);
+    // Clear whichever lyric layer we're leaving so stale text doesn't linger
+    if (this.skyMode) {
+      this.fishLyrics.clear();   // leaving lake view → fade out water lyrics
+    } else {
+      this.lyrics.clear?.();     // leaving sky view → clear sky particles if supported
+    }
   }
 
   togglePause() {

@@ -83,6 +83,18 @@ function getDecalGeo() {
   return _decalGeo;
 }
 
+// Shared BoxGeometry for all SkyLyricSystem InstancedMesh phrases.
+// Must NOT be disposed per phrase — session lifetime only.
+let _skyParticleGeo = null;
+function getSkyParticleGeo() {
+  if (!_skyParticleGeo) _skyParticleGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
+  return _skyParticleGeo;
+}
+
+// Canvas pixel cache: avoids re-rendering identical lyric text (e.g. chorus repeats).
+// Stores ImageData.data (Uint8ClampedArray) keyed by text string. Capped at 20 entries.
+const _skyCanvasCache = new Map();
+
 class WaterDecal {
   constructor(text, engine, colorHex, boatPos) {
     this.engine   = engine;
@@ -169,7 +181,9 @@ class SkyLyricSystem {
     this.colorHex = colorHex;
     this.phrases  = [];
 
-    this.particleGeo = new THREE.BoxGeometry(0.12, 0.12, 0.12);
+    // Pre-allocated dummy — avoids `new THREE.Object3D()` every frame in update()
+    this._dummy = new THREE.Object3D();
+    // NOTE: particle geometry is shared via getSkyParticleGeo() — not stored per-instance
   }
 
   addPhrase(text, boatPos) {
@@ -183,28 +197,37 @@ class SkyLyricSystem {
       }
     }
 
-    const canvas = document.createElement("canvas");
-    canvas.width  = 1024;
-    canvas.height = 256;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, 1024, 256);
+    // Resolve pixel data — use cache to skip canvas render for repeated lyrics (chorus)
+    let data;
+    if (_skyCanvasCache.has(text)) {
+      data = _skyCanvasCache.get(text);
+    } else {
+      const canvas = document.createElement("canvas");
+      canvas.width  = 1024;
+      canvas.height = 256;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, 1024, 256);
 
-    // Auto-scale font size to fit long lyrics
-    let fontSize = 70;
-    const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
-    ctx.font = font(fontSize);
-    while (ctx.measureText(text).width > 980 && fontSize > 20) {
-      fontSize -= 5;
+      // Auto-scale font size to fit long lyrics
+      let fontSize = 70;
+      const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
       ctx.font = font(fontSize);
+      while (ctx.measureText(text).width > 980 && fontSize > 20) {
+        fontSize -= 5;
+        ctx.font = font(fontSize);
+      }
+
+      ctx.fillStyle    = "white";
+      ctx.textAlign    = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, 512, 128);
+
+      data = ctx.getImageData(0, 0, 1024, 256).data;
+      // Evict oldest entry when cap is reached
+      if (_skyCanvasCache.size >= 20) _skyCanvasCache.delete(_skyCanvasCache.keys().next().value);
+      _skyCanvasCache.set(text, data);
     }
-
-    ctx.fillStyle    = "white";
-    ctx.textAlign    = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, 512, 128);
-
-    const data   = ctx.getImageData(0, 0, 1024, 256).data;
     const points = [];
 
     for (let y = 0; y < 256; y += 1.5) {
@@ -230,14 +253,13 @@ class SkyLyricSystem {
       opacity:     0.0,
     });
 
-    const particleGeo = new THREE.BoxGeometry(0.15, 0.15, 0.15);
-    const imesh = new THREE.InstancedMesh(particleGeo, mat, points.length);
+    // Use shared geometry — do NOT store p.geo; shared geo must not be disposed per phrase
+    const imesh = new THREE.InstancedMesh(getSkyParticleGeo(), mat, points.length);
     imesh.position.set(boatPos.x, 25, boatPos.z - 40);
     this.engine.scene.add(imesh);
 
     this.phrases.push({
       mesh: imesh,
-      geo:  particleGeo,
       points,
       life: 6.0,
       age:  0,
@@ -245,7 +267,7 @@ class SkyLyricSystem {
   }
 
   update(dt) {
-    const dummy = new THREE.Object3D();
+    const dummy = this._dummy; // pre-allocated in constructor — no per-frame allocation
     for (const p of this.phrases) {
       p.age += dt;
 
@@ -277,7 +299,7 @@ class SkyLyricSystem {
       if (p.age > p.life) {
         this.engine.scene.remove(p.mesh);
         p.mesh.material.dispose();
-        if (p.geo) p.geo.dispose();
+        // p.geo is shared via getSkyParticleGeo() — must NOT be disposed per phrase
         p.mesh.dispose();
         return false;
       }
@@ -289,7 +311,7 @@ class SkyLyricSystem {
     for (const p of this.phrases) {
       if (p.mesh.parent) this.engine.scene.remove(p.mesh);
       p.mesh.material.dispose();
-      if (p.geo) p.geo.dispose();
+      // shared geometry — not disposed here
       p.mesh.dispose();
     }
   }

@@ -23,8 +23,21 @@ const TEXT_WIDTH       = 24;     // world-unit width of text formation
 const FORM_Y_RANGE     = 3.5;    // world-unit depth of text formation (Z axis)
 const MAX_SAMPLE_POINTS = 2800;
 const FORM_SPEED       = 12.0;
-const AVOID_RADIUS     = 5.5;    // boat avoidance radius
+const AVOID_RADIUS     = 0.7;    // boat avoidance radius
 const AVOID_FORCE      = 20;     // explosive push when boat enters
+
+// Sand-kick scatter
+const SCATTER_DURATION    = 1.2;   // seconds particle flies free after impact
+const SCATTER_SIZE_BOOST  = 1.5;   // point size multiplier while scattered
+const SCATTER_ALPHA_BOOST = 1.8;   // alpha multiplier while scattered
+const SCATTER_VEL_DAMP    = 0.92;  // per-frame velocity damping while scattered
+const DIRECTIONAL_BLEND   = 0.65;  // how much boat heading blends into kick direction
+
+// Wave-height grid (pre-computed once per frame, bilinear-sampled per particle)
+const GRID_N    = 16;                          // grid cells per axis
+const GRID_SPAN = 80;                          // world-unit coverage (±40)
+const GRID_STEP = GRID_SPAN / (GRID_N - 1);   // world units per cell
+const _waveGrid = new Float32Array(GRID_N * GRID_N); // never re-allocated
 
 // ─── Glow particle shader ────────────────────────────────
 
@@ -140,9 +153,12 @@ export class LyricFormation {
     this.velocities = new Float32Array(FISH_COUNT * 3);
     this.targets    = new Float32Array(FISH_COUNT * 3); // local [lx, 0, lz]
     this.hasTarget  = new Uint8Array(FISH_COUNT);
-    this.phases     = new Float32Array(FISH_COUNT);
-    this.sizes      = new Float32Array(FISH_COUNT);
-    this.alphas     = new Float32Array(FISH_COUNT);
+    this.phases      = new Float32Array(FISH_COUNT);
+    this.sizes       = new Float32Array(FISH_COUNT);
+    this.alphas      = new Float32Array(FISH_COUNT);
+    this.scattered   = new Float32Array(FISH_COUNT); // scatter countdown per particle
+    this._baseSizes  = new Float32Array(FISH_COUNT); // original sizes for restore
+    this._baseAlphas = new Float32Array(FISH_COUNT); // original alphas for restore
 
     const cx = this._center.x, cz = this._center.z;
     for (let i = 0; i < FISH_COUNT; i++) {
@@ -159,6 +175,8 @@ export class LyricFormation {
       this.phases[i] = Math.random() * Math.PI * 2;
       this.sizes[i]  = 0.12 + Math.random() * 0.14;
       this.alphas[i] = 0.8  + Math.random() * 0.2;
+      this._baseSizes[i]  = this.sizes[i];
+      this._baseAlphas[i] = this.alphas[i];
     }
 
     const geo = new THREE.BufferGeometry();
@@ -298,7 +316,7 @@ export class LyricFormation {
 
   // ── Update ───────────────────────────────────────────────
 
-  update(dt, elapsed, boatPos) {
+  update(dt, elapsed, boatPos, boatVel) {
     if (this._disposed) return;
 
     const uniforms = this._uniforms;
@@ -328,77 +346,141 @@ export class LyricFormation {
       uniforms.uColorBlend.value = 0;
     }
 
-    const sc  = this._center;
-    const pos = this.posArray;
-    const vel  = this.velocities;
-    const tgt  = this.targets;
-    const hasT = this.hasTarget;
+    const sc         = this._center;
+    const pos        = this.posArray;
+    const vel        = this.velocities;
+    const tgt        = this.targets;
+    const hasT       = this.hasTarget;
+    const scattered  = this.scattered;
+    const baseSizes  = this._baseSizes;
+    const baseAlphas = this._baseAlphas;
+
+    // Pre-compute wave height grid (16×16) covering the formation area.
+    // Reduces waveHeight() from 2800 calls/frame → 256 calls/frame (91% reduction).
+    const gox = sc.x - GRID_SPAN / 2;
+    const goz = sc.z - GRID_SPAN / 2;
+    for (let gy = 0; gy < GRID_N; gy++) {
+      for (let gx = 0; gx < GRID_N; gx++) {
+        _waveGrid[gy * GRID_N + gx] = waveHeight(gox + gx * GRID_STEP, goz + gy * GRID_STEP, elapsed);
+      }
+    }
+
+    // Pre-compute boat heading once per frame
+    let boatDirX = 0, boatDirZ = 0;
+    if (boatVel) {
+      const spd = Math.sqrt(boatVel.x * boatVel.x + boatVel.z * boatVel.z);
+      if (spd > 0.05) { boatDirX = boatVel.x / spd; boatDirZ = boatVel.z / spd; }
+    }
 
     for (let i = 0; i < FISH_COUNT; i++) {
       const i3 = i * 3;
       let px = pos[i3], pz = pos[i3 + 2];
       let vx = vel[i3], vz = vel[i3 + 2];
 
-      if (hasT[i]) {
-        // Move toward formation target — fixed world position, no billboard
-        const lx = tgt[i3], lz = tgt[i3 + 2];
-        const wtx = sc.x + lx;
-        const wtz = sc.z + lz;
+      const isScattered = scattered[i] > 0;
 
-        const dx = wtx - px, dz = wtz - pz;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-        if (dist > 0.05) {
-          const factor = Math.min(FORM_SPEED * dt / dist, 1);
-          px += dx * factor;
-          pz += dz * factor;
+      if (!isScattered) {
+        if (hasT[i]) {
+          // Move toward formation target — fixed world position, no billboard
+          const lx = tgt[i3], lz = tgt[i3 + 2];
+          const wtx = sc.x + lx;
+          const wtz = sc.z + lz;
+
+          const dx = wtx - px, dz = wtz - pz;
+          const dist = Math.sqrt(dx * dx + dz * dz);
+          if (dist > 0.05) {
+            const factor = Math.min(FORM_SPEED * dt / dist, 1);
+            px += dx * factor;
+            pz += dz * factor;
+          }
+          vx *= 0.9; vz *= 0.9;
+
+        } else {
+          // Idle drift around center
+          vx += (Math.random() - 0.5) * 2.0 * dt;
+          vz += (Math.random() - 0.5) * 2.0 * dt;
+
+          const tcx = sc.x - px, tcz = sc.z - pz;
+          const dCenter = Math.sqrt(tcx * tcx + tcz * tcz);
+          if (dCenter > SCHOOL_RADIUS * 0.7) {
+            const pull = 0.5 * dt;
+            vx += (tcx / dCenter) * pull;
+            vz += (tcz / dCenter) * pull;
+          }
+
+          const speed = Math.sqrt(vx * vx + vz * vz);
+          if (speed > 2.0) { const r = 2.0 / speed; vx *= r; vz *= r; }
+
+          px += vx * dt;
+          pz += vz * dt;
+
+          // Clamp to circle around center
+          const dx2 = px - sc.x, dz2 = pz - sc.z;
+          const d2  = Math.sqrt(dx2 * dx2 + dz2 * dz2);
+          if (d2 > SCHOOL_RADIUS) {
+            px = sc.x + dx2 * (SCHOOL_RADIUS / d2);
+            pz = sc.z + dz2 * (SCHOOL_RADIUS / d2);
+            vx *= -0.5; vz *= -0.5;
+          }
         }
-        vx *= 0.9; vz *= 0.9;
-
       } else {
-        // Idle drift around center
-        vx += (Math.random() - 0.5) * 2.0 * dt;
-        vz += (Math.random() - 0.5) * 2.0 * dt;
-
-        const tcx = sc.x - px, tcz = sc.z - pz;
-        const dCenter = Math.sqrt(tcx * tcx + tcz * tcz);
-        if (dCenter > SCHOOL_RADIUS * 0.7) {
-          const pull = 0.5 * dt;
-          vx += (tcx / dCenter) * pull;
-          vz += (tcz / dCenter) * pull;
-        }
-
-        const speed = Math.sqrt(vx * vx + vz * vz);
-        if (speed > 2.0) { const r = 2.0 / speed; vx *= r; vz *= r; }
-
+        // Scattered: fly free, damp velocity, count down timer
+        vx *= SCATTER_VEL_DAMP;
+        vz *= SCATTER_VEL_DAMP;
         px += vx * dt;
         pz += vz * dt;
-
-        // Clamp to circle around center
-        const dx2 = px - sc.x, dz2 = pz - sc.z;
-        const d2  = Math.sqrt(dx2 * dx2 + dz2 * dz2);
-        if (d2 > SCHOOL_RADIUS) {
-          px = sc.x + dx2 * (SCHOOL_RADIUS / d2);
-          pz = sc.z + dz2 * (SCHOOL_RADIUS / d2);
-          vx *= -0.5; vz *= -0.5;
+        scattered[i] -= dt;
+        if (scattered[i] <= 0) {
+          scattered[i] = 0;
+          this.sizes[i]  = baseSizes[i];
+          this.alphas[i] = baseAlphas[i];
         }
       }
 
-      // Boat avoidance — exponential push so particles scatter visibly
+      // Sand-kick: directional blast from boat
       if (boatPos) {
         const bx = px - boatPos.x, bz = pz - boatPos.z;
         const bd = Math.sqrt(bx * bx + bz * bz);
         if (bd < AVOID_RADIUS && bd > 0.01) {
-          const t    = 1 - bd / AVOID_RADIUS;          // 0 at edge, 1 at center
-          const push = t * t * AVOID_FORCE * dt;        // quadratic: much stronger up close
-          px += (bx / bd) * push;
-          pz += (bz / bd) * push;
-          vx += (bx / bd) * push * 8;                  // impart lasting velocity
-          vz += (bz / bd) * push * 8;
+          const t    = 1 - bd / AVOID_RADIUS;
+          const push = t * t * AVOID_FORCE * dt;
+
+          // Radial unit vector (away from boat center)
+          const rx = bx / bd, rz = bz / bd;
+
+          // Blend radial with boat heading: particles in path blast forward,
+          // particles to the sides sweep outward, particles behind get no suck
+          const dot   = rx * boatDirX + rz * boatDirZ;
+          const blend = Math.max(0, dot) * DIRECTIONAL_BLEND;
+          const kickX = rx * (1 - blend) + boatDirX * blend;
+          const kickZ = rz * (1 - blend) + boatDirZ * blend;
+          const kickLen = Math.sqrt(kickX * kickX + kickZ * kickZ) || 1;
+          const knx = kickX / kickLen, knz = kickZ / kickLen;
+
+          px += knx * push;
+          pz += knz * push;
+          vx += knx * push * 8;
+          vz += knz * push * 8;
+
+          // Trigger / refresh scatter + visual pop
+          if (scattered[i] < SCATTER_DURATION) {
+            scattered[i]   = SCATTER_DURATION;
+            this.sizes[i]  = baseSizes[i]  * SCATTER_SIZE_BOOST;
+            this.alphas[i] = Math.min(1.0, baseAlphas[i] * SCATTER_ALPHA_BOOST);
+          }
         }
       }
 
-      // Y: ride wave surface
-      const py = waveHeight(px, pz, elapsed) + SURFACE_OFFSET;
+      // Y: bilinear sample from pre-computed wave grid (no per-particle trig)
+      const gu  = Math.max(0, Math.min(GRID_N - 1.001, (px - gox) / GRID_STEP));
+      const gv  = Math.max(0, Math.min(GRID_N - 1.001, (pz - goz) / GRID_STEP));
+      const gix = gu | 0, giy = gv | 0;
+      const gfx = gu - gix, gfy = gv - giy;
+      const wa  = _waveGrid[ giy      * GRID_N + gix    ];
+      const wb  = _waveGrid[ giy      * GRID_N + gix + 1];
+      const wc  = _waveGrid[(giy + 1) * GRID_N + gix    ];
+      const wd  = _waveGrid[(giy + 1) * GRID_N + gix + 1];
+      const py  = wa + (wb - wa) * gfx + (wc - wa) * gfy + (wd - wa + wb - wc) * gfx * gfy + SURFACE_OFFSET;
 
       pos[i3]     = px;
       pos[i3 + 1] = py;
@@ -408,6 +490,8 @@ export class LyricFormation {
     }
 
     this.mesh.geometry.attributes.position.needsUpdate = true;
+    this.mesh.geometry.attributes.aSize.needsUpdate    = true;
+    this.mesh.geometry.attributes.aAlpha.needsUpdate   = true;
   }
 
   dispose() {
