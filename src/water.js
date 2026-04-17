@@ -45,6 +45,9 @@ const fragShader = /* glsl */ `
   uniform vec3  uSkyTop;
   uniform vec3  uSkyHorizon;
   uniform float uEnergy;
+  uniform vec2  uRippleCenter;
+  uniform float uRippleAge;
+  uniform float uRippleStrength;
 
   varying vec3 vWorldPos;
 
@@ -98,6 +101,14 @@ const fragShader = /* glsl */ `
     float fog = smoothstep(35.0, 55.0, length(vWorldPos.xz));
     col = mix(col, uSkyHorizon * 0.9, fog * 0.5);
 
+    // Ripple ring (triggered by note/plank collision)
+    if (uRippleStrength > 0.001) {
+      float rDist = length(vWorldPos.xz - uRippleCenter);
+      float rRing = sin(rDist * 2.5 - uRippleAge * 6.0) * exp(-rDist * 0.22) * uRippleStrength;
+      rRing = max(0.0, rRing);
+      col += vec3(rRing * 0.10, rRing * 0.18, rRing * 0.22);
+    }
+
     // Transparency: deep center more opaque, shallow edges more transparent
     float alpha = 0.98 - depth * 0.12;
     gl_FragColor = vec4(col, alpha);
@@ -119,8 +130,14 @@ export class Water {
       uCloudScale:  { value: 0.015 },
       uSkyTop:      { value: new THREE.Color(0x1a7ad4) },
       uSkyHorizon:  { value: new THREE.Color(0xe8f4ff) },
-      uEnergy:      { value: 0 },
+      uEnergy:        { value: 0 },
+      uRippleCenter:  { value: new THREE.Vector2(0, 0) },
+      uRippleAge:     { value: 0 },
+      uRippleStrength:{ value: 0 },
     };
+
+    this._rippleActive = false;
+    this._rippleAge = 0;
 
     const geo = new THREE.PlaneGeometry(120, 120, 50, 50);
     geo.rotateX(-Math.PI / 2);
@@ -150,6 +167,14 @@ export class Water {
     this.audioData = data;
   }
 
+  /** Trigger an expanding ripple ring at world position (Vector3 or {x,z}) */
+  triggerRipple(worldPos) {
+    this.uniforms.uRippleCenter.value.set(worldPos.x, worldPos.z);
+    this._rippleAge = 0;
+    this._rippleActive = true;
+    this.uniforms.uRippleStrength.value = 1.0;
+  }
+
   setColors(shallow, deep) {
     this.uniforms.uShallow.value.set(shallow);
     this.uniforms.uDeep.value.set(deep);
@@ -177,6 +202,15 @@ export class Water {
     this.smoothedEnergy += (energy - this.smoothedEnergy) * dt * 15.0;
     
     this.uniforms.uEnergy.value = this.smoothedEnergy;
+
+    // Ripple decay
+    if (this._rippleActive) {
+      this._rippleAge += dt;
+      this.uniforms.uRippleAge.value = this._rippleAge;
+      const strength = Math.max(0, 1 - this._rippleAge / 2.5);
+      this.uniforms.uRippleStrength.value = strength;
+      if (strength <= 0) this._rippleActive = false;
+    }
 
     // Advance cloud offset — drives shadow drift
     this.uniforms.uCloudOffset.value.x = elapsed * (0.008 + this.smoothedEnergy * 0.01);

@@ -106,7 +106,7 @@ class ParticleTrail {
   }
 }
 
-function waveHeight(x, z, t, energy = 0) {
+export function waveHeight(x, z, t, energy = 0) {
   const ampMod = 1.0 + energy * 2.0;
   const spdMod = 1.0 + energy * 1.5;
   const w = (px, pz, dx, dz, len, amp, spd) =>

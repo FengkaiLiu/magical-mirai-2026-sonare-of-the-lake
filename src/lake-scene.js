@@ -11,6 +11,8 @@ import { Boat } from "./boat.js";
 import { CameraController } from "./camera.js";
 import { Controls } from "./controls.js";
 import { LyricManager } from "./lyric-manager.js";
+import { FishLyricSystem } from "./fish-lyric-system.js";
+import { WaterObjects } from "./water-objects.js";
 import { SONGS } from "./songs.js";
 
 export class LakeScene {
@@ -34,6 +36,12 @@ export class LakeScene {
 
     // Lyrics (uses song theme particle color)
     this.lyrics = new LyricManager(engine, this.boat, this.song.theme.particle);
+
+    // Fish school lyric system (underwater companion, always active)
+    this.fishLyrics = new FishLyricSystem(engine, this.boat);
+
+    // Water mini-game objects (planks + notes)
+    this.waterObjects = new WaterObjects(engine, this.boat, this.fishLyrics, this.water);
 
     // HUD
     const hud = document.getElementById("hud");
@@ -75,6 +83,7 @@ export class LakeScene {
     }
 
     this._managed = false;
+    this._lastPhraseText = null;
     this.player.addListener({
       onAppReady: (app) => {
         this._managed = app.managed;
@@ -94,7 +103,14 @@ export class LakeScene {
           timeTxt.textContent = `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
         }
         const phrase = this.player.video?.findPhrase(pos);
-        if (phrase) this.lyrics.addPhrase(phrase.text);
+        const phraseText = phrase?.text ?? null;
+        if (phraseText !== this._lastPhraseText) {
+          this._lastPhraseText = phraseText;
+          if (phraseText) {
+            this.fishLyrics.addPhrase(phraseText);
+            if (this.skyMode) this.lyrics.addPhrase(phraseText);
+          }
+        }
       },
       onPlay: () => {
         document.getElementById("overlay")?.classList.add("hidden");
@@ -145,6 +161,8 @@ export class LakeScene {
     this.cam.dispose();
     this.controls.dispose();
     this.lyrics.dispose();
+    this.fishLyrics.dispose();
+    this.waterObjects.dispose();
 
     const hud = document.getElementById("hud");
     if (hud) hud.classList.remove("visible");
