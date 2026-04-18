@@ -147,6 +147,17 @@ body {
   50%       { box-shadow: 0 0 36px rgba(64,220,240,0.55); }
 }
 
+/* Circle-reveal wipe */
+#circle-reveal {
+  position: fixed;
+  inset: 0;
+  z-index: 190; /* above 3D canvas, below intro title text (200) */
+  pointer-events: none;
+  /* Starts fully opaque — transparent hole is 0% radius */
+  background: radial-gradient(circle at center, #0a2a4a 0%, #1a5a8a 50%, #5bc8d8 100%);
+}
+#circle-reveal.gone { display: none; }
+
 /* Transition fade overlay */
 #transition-overlay {
   position: fixed;

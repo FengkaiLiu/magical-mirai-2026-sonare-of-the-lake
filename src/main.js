@@ -30,17 +30,32 @@ THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => {
 };
 
 THREE.DefaultLoadingManager.onLoad = () => {
-  // Fill bar to 100 % then swap loading → Start button
+  // Fill bar to 100 %, then hold 2 s to let the circle reveal play before
+  // swapping to the Start button
   if (progressFill) progressFill.style.width = "100%";
   if (progressPct)  progressPct.textContent  = "100%";
+
+  // Wait 2 s, then fade out the overlay and show Start button
   setTimeout(() => {
-    if (progressWrap) progressWrap.classList.add("hidden");
-    if (startBtn) {
-      startBtn.disabled = false;
-      startBtn.classList.add("ready");
-    }
-  }, 400);
+    fadeOutReveal();
+    setTimeout(() => {
+      if (progressWrap) progressWrap.classList.add("hidden");
+      if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.classList.add("ready");
+      }
+    }, 0);
+  }, 2000);
 };
+
+// Fade out the overlay (shared by onLoad and the 5 s fallback)
+function fadeOutReveal() {
+  const el = document.getElementById("circle-reveal");
+  if (!el || el.classList.contains("gone")) return;
+  el.style.transition = "opacity 1.5s ease";
+  el.style.opacity = "0";
+  setTimeout(() => el.classList.add("gone"), 1500);
+}
 
 // If no assets are loaded at all (all cached / no GLTF in scene), show Start
 // immediately after a short grace period so the screen never gets stuck.
@@ -48,10 +63,11 @@ setTimeout(() => {
   if (startBtn && !startBtn.classList.contains("ready")) {
     if (progressFill) progressFill.style.width = "100%";
     if (progressPct)  progressPct.textContent  = "100%";
+    fadeOutReveal();
     setTimeout(() => {
       if (progressWrap) progressWrap.classList.add("hidden");
       if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
-    }, 400);
+    }, 1500);
   }
 }, 5000);
 

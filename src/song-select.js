@@ -232,15 +232,17 @@ export class SongSelectScene {
   beginIntroSequence() {
     if (this._disposed) return;
 
-    // Fade the 2D screen away — 3D overhead lake is now visible
+    // Fade out 2D intro screen first, then spawn particles after it's gone
     const introEl = document.getElementById("intro-screen");
     if (introEl) {
-      introEl.classList.add("hidden");
-      setTimeout(() => introEl.classList.add("gone"), 950);
+      introEl.classList.add("hidden");           // starts 0.9s CSS fade
+      setTimeout(() => {
+        introEl.classList.add("gone");
+        this._spawnTitleFormations();            // particles appear once screen is clear
+      }, 950);
+    } else {
+      this._spawnTitleFormations();
     }
-
-    // Small pause so the fade-out plays before fish appear
-    setTimeout(() => this._spawnTitleFormations(), 500);
   }
 
   _spawnTitleFormations() {
@@ -252,18 +254,18 @@ export class SongSelectScene {
     // poolRadius=38 → particles start scattered over a large area before forming.
     const f1 = new LyricFormation(
       this.engine,
-      new THREE.Vector3(0, 0, -8),
+      new THREE.Vector3(0, 0, -10),
       "Magic Mirai",
       TITLE_COLOR,
-      { textScale: 2.8, poolRadius: 38 }
+      { textScale: 10, poolRadius: 28 }
     );
     // Subtitle slightly smaller so it sits clearly below the main title
     const f2 = new LyricFormation(
       this.engine,
-      new THREE.Vector3(0, 0, 10),
+      new THREE.Vector3(0, 0, 3),
       "Sonare of the Lake",
       SUB_COLOR,
-      { textScale: 1.8, poolRadius: 30 }
+      { textScale: 4, poolRadius: 20 }
     );
     this._introFormations = [f1, f2];
 

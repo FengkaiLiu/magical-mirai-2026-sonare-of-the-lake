@@ -33,7 +33,9 @@ export class CameraController {
     this._diveTimer     = 0;
     this._diveDuration  = 3.5;   // seconds — long enough to feel dramatic
     this.onDiveComplete = null;  // optional callback
-    this.revealLock     = false; // when true, camera holds position while boat enters
+    this.revealLock          = false; // when true, camera holds position while boat enters
+    this._revealTransition   = 0;    // counts up after revealLock releases to ease smoothing in
+    this._revealTransDur     = 1.5;  // seconds to ramp smoothing from dive-speed to normal
 
     // Start right at the overhead position so there is no camera snap
     this.currentPos.set(0, 90, 0);
@@ -128,6 +130,7 @@ export class CameraController {
     // It is cleared externally (cam.revealLock = false) once the boat
     // has reached the center.
     if (this.revealLock) {
+      this._revealTransition = 0; // reset while locked
       this.camera.position.copy(this.currentPos);
       this.camera.lookAt(this.currentLook);
       return;
@@ -136,6 +139,13 @@ export class CameraController {
     // ── State 4: Normal boat follow ────────────────────────────────
     if (this._boatRef) this.targetPos = this._boatRef.getPosition();
     if (!this.targetPos) return;
+
+    // Ramp smoothing up from dive-speed (0.02) to normal (this.smoothing)
+    // over _revealTransDur seconds to avoid a snap when revealLock first releases
+    this._revealTransition = Math.min(this._revealTransDur,
+                                      this._revealTransition + dt);
+    const t = this._revealTransition / this._revealTransDur;
+    const easedT = t * t * (3 - 2 * t); // smoothstep
 
     let goalLook;
     if (this.skyMode) {
@@ -158,7 +168,8 @@ export class CameraController {
       this.targetPos.z + (this.skyMode ? 12 : this.distance)
     );
 
-    const smooth = this.skyMode ? this.skySmoothing : this.smoothing;
+    const baseSmooth = this.skyMode ? this.skySmoothing : this.smoothing;
+    const smooth = 0.02 + (baseSmooth - 0.02) * easedT;
     const alpha = 1 - Math.pow(1 - smooth, dt * 60);
     this.currentPos.lerp(goalPos, alpha);
     this.currentLook.lerp(goalLook, alpha);

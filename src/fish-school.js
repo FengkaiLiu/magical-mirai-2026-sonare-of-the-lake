@@ -16,12 +16,12 @@ import { waveHeight } from "./boat.js";
 
 // ─── Config ──────────────────────────────────────────────
 
-const FISH_COUNT       = 2800;
+const FISH_COUNT       = 2400;
 const SCHOOL_RADIUS    = 14;
 const SURFACE_OFFSET   = 0.18;   // how far above wave surface particles float
 const TEXT_WIDTH       = 24;     // world-unit width of text formation
 const FORM_Y_RANGE     = 3.5;    // world-unit depth of text formation (Z axis)
-const MAX_SAMPLE_POINTS = 2800;
+const MAX_SAMPLE_POINTS = 2400;
 const FORM_SPEED       = 12.0;
 const AVOID_RADIUS     = 0.7;    // boat avoidance radius
 const AVOID_FORCE      = 20;     // explosive push when boat enters
@@ -73,7 +73,7 @@ const glowFrag = /* glsl */ `
 
     float core = exp(-d * d * 28.0);
     float halo = exp(-d * d * 7.0) * 0.6;
-    float glowBoost = mix(2.5, 6.0, uIntensity);
+    float glowBoost = mix(4.0, 9.0, uIntensity);
     float glow = (core + halo) * glowBoost;
 
     vec3 themeColor = mix(uColor, uTargetColor, uColorBlend);
@@ -108,13 +108,28 @@ function sampleTextPoints(text) {
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
+  ctx.letterSpacing = "10px";
   ctx.fillText(text, canvasW / 2, canvasH / 2);
 
   const pixels = ctx.getImageData(0, 0, canvasW, canvasH).data;
+  // Outline only: keep pixels that are white AND touch at least one black neighbor
   const white = [];
-  for (let y = 0; y < canvasH; y++)
-    for (let x = 0; x < canvasW; x++)
-      if (pixels[(y * canvasW + x) * 4] > 128) white.push({ x, y });
+  for (let y = 1; y < canvasH - 1; y++) {
+    for (let x = 1; x < canvasW - 1; x++) {
+      if (pixels[(y * canvasW + x) * 4] <= 128) continue;
+      // Check 8-connected neighbors for a dark pixel
+      const hasEdge =
+        pixels[((y - 1) * canvasW + x - 1) * 4] <= 128 ||
+        pixels[((y - 1) * canvasW + x    ) * 4] <= 128 ||
+        pixels[((y - 1) * canvasW + x + 1) * 4] <= 128 ||
+        pixels[(y       * canvasW + x - 1) * 4] <= 128 ||
+        pixels[(y       * canvasW + x + 1) * 4] <= 128 ||
+        pixels[((y + 1) * canvasW + x - 1) * 4] <= 128 ||
+        pixels[((y + 1) * canvasW + x    ) * 4] <= 128 ||
+        pixels[((y + 1) * canvasW + x + 1) * 4] <= 128;
+      if (hasEdge) white.push({ x, y });
+    }
+  }
 
   const pts = [];
   if (white.length <= MAX_SAMPLE_POINTS) {
@@ -179,8 +194,8 @@ export class LyricFormation {
       this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
 
       this.phases[i] = Math.random() * Math.PI * 2;
-      this.sizes[i]  = 0.12 + Math.random() * 0.14;
-      this.alphas[i] = 0.8  + Math.random() * 0.2;
+      this.sizes[i]  = 0.22 + Math.random() * 0.16;
+      this.alphas[i] = 1.0;
       this._baseSizes[i]  = this.sizes[i];
       this._baseAlphas[i] = this.alphas[i];
     }
