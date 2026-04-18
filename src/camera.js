@@ -24,11 +24,40 @@ export class CameraController {
     this.skySmoothing = 0.025; // slow cinematic sweep into sky view
     this._boatRef = null;
 
+    // ── Intro / Dive state ──────────────────────────────────────────
+    // When isIntro=true the camera is locked overhead at (0,90,0) looking
+    // straight down at the lake centre. Call startDive() to begin the
+    // cinematic plunge to the boat-follow position.
+    this.isIntro        = true;
+    this._diveStarted   = false;
+    this._diveTimer     = 0;
+    this._diveDuration  = 3.5;   // seconds — long enough to feel dramatic
+    this.onDiveComplete = null;  // optional callback
+    this.revealLock     = false; // when true, camera holds position while boat enters
+
+    // Start right at the overhead position so there is no camera snap
+    this.currentPos.set(0, 90, 0);
+    this.currentLook.set(0, 0, 0);
+
     // 初期位置
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(0, 0, 0);
+    this.camera.fov = 50;
+    this.camera.updateProjectionMatrix();
 
     engine.addUpdatable(this);
+  }
+
+  /**
+   * Begin the dramatic camera dive from overhead to boat-follow position.
+   * The camera uses a boosted smoothing factor so it covers the distance in
+   * roughly _diveDuration seconds.  FOV is stretched 50→75→60 for speed feel.
+   */
+  startDive() {
+    if (!this.isIntro) return;
+    this.isIntro      = false;
+    this._diveStarted = true;
+    this._diveTimer   = 0;
   }
 
   attachBoat(boat) {
@@ -48,16 +77,71 @@ export class CameraController {
   }
 
   update(dt, elapsed) {
+    // ── State 1: Intro — camera locked overhead ────────────────────
+    if (this.isIntro) {
+      const alpha = 1 - Math.pow(1 - 0.06, dt * 60);
+      this.currentPos.lerp(new THREE.Vector3(0, 90, 0), alpha);
+      this.currentLook.lerp(new THREE.Vector3(0, 0, 0), alpha);
+      this.camera.position.copy(this.currentPos);
+      this.camera.lookAt(this.currentLook);
+      return;
+    }
+
+    // ── State 2: Dive — lerp toward fixed boat-at-origin position ──
+    // Target is fixed (origin follow pos), NOT the moving boat, so there
+    // is no jitter from boat physics influencing the dive trajectory.
+    if (this._diveStarted) {
+      this._diveTimer += dt;
+      const t = Math.min(1, this._diveTimer / this._diveDuration);
+
+      // FOV arc: 50 → 75 (widening rush) → 60 (narrowing brake)
+      const fovBase = 50, fovPeak = 75, fovLand = 60;
+      this.camera.fov = t < 0.5
+        ? fovBase + (fovPeak - fovBase) * (t * 2)
+        : fovPeak + (fovLand - fovPeak) * ((t - 0.5) * 2);
+      this.camera.updateProjectionMatrix();
+
+      // Fixed landing target: where the camera sits when boat is at origin
+      const diveGoalPos  = new THREE.Vector3(0, this.height, this.distance);
+      const diveGoalLook = new THREE.Vector3(0, 0, -this.lookAhead);
+      const alpha = 1 - Math.pow(1 - 0.02, dt * 60);
+      this.currentPos.lerp(diveGoalPos, alpha);
+      this.currentLook.lerp(diveGoalLook, alpha);
+
+      this.camera.position.copy(this.currentPos);
+      this.camera.lookAt(this.currentLook);
+
+      if (t >= 1) {
+        this._diveStarted = false;
+        this.camera.fov = fovLand;
+        this.camera.updateProjectionMatrix();
+        if (this.onDiveComplete) {
+          this.onDiveComplete();
+          this.onDiveComplete = null;
+        }
+      }
+      return;
+    }
+
+    // ── State 3: Reveal lock — camera frozen, boat sails into frame ─
+    // Song-select sets this while the boat entrance animation plays.
+    // It is cleared externally (cam.revealLock = false) once the boat
+    // has reached the center.
+    if (this.revealLock) {
+      this.camera.position.copy(this.currentPos);
+      this.camera.lookAt(this.currentLook);
+      return;
+    }
+
+    // ── State 4: Normal boat follow ────────────────────────────────
     if (this._boatRef) this.targetPos = this._boatRef.getPosition();
     if (!this.targetPos) return;
 
-    // 目標注視点: 船の少し前方、Chorus中は空高く且つ歌詞をセンターに
     let goalLook;
     if (this.skyMode) {
-      // Look at a point high in front of the boat
       goalLook = new THREE.Vector3(
         this.targetPos.x,
-        15, // Lower than 35 for more horizontal view
+        15,
         this.targetPos.z - 40
       );
     } else {
@@ -70,12 +154,10 @@ export class CameraController {
 
     const goalPos = new THREE.Vector3(
       this.targetPos.x,
-      this.targetPos.y + (this.skyMode ? 2.5 : this.height), // Slightly higher in sky mode to see horizon
-      this.targetPos.z + (this.skyMode ? 12 : this.distance) // Farther back to see the scale
+      this.targetPos.y + (this.skyMode ? 2.5 : this.height),
+      this.targetPos.z + (this.skyMode ? 12 : this.distance)
     );
 
-    // フレームレート非依存のスムーズ補間
-    // 60fps でも 30fps でも同じ速度で追従する
     const smooth = this.skyMode ? this.skySmoothing : this.smoothing;
     const alpha = 1 - Math.pow(1 - smooth, dt * 60);
     this.currentPos.lerp(goalPos, alpha);

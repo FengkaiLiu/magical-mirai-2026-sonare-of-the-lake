@@ -139,15 +139,21 @@ function sampleTextPoints(text) {
 export class LyricFormation {
   /**
    * @param {object} engine
-   * @param {THREE.Vector3} center  — world position to spawn at (on water surface)
-   * @param {string} text           — lyric phrase
-   * @param {number} color          — hex color (theme particle color)
+   * @param {THREE.Vector3} center     — world position to spawn at (on water surface)
+   * @param {string} text              — lyric phrase
+   * @param {number} color             — hex color (theme particle color)
+   * @param {object} [opts]            — optional overrides
+   * @param {number} [opts.textScale]  — multiplier for TEXT_WIDTH / FORM_Y_RANGE (default 1)
+   * @param {number} [opts.poolRadius] — initial scatter radius for particles (default SCHOOL_RADIUS)
    */
-  constructor(engine, center, text, color) {
+  constructor(engine, center, text, color, opts = {}) {
     this.engine  = engine;
     this.camera  = engine.camera;
     this._center = center.clone();
     this._center.y = 0; // Y driven by waveHeight per-frame
+
+    this._textScale  = opts.textScale  ?? 1.0;
+    this._poolRadius = opts.poolRadius ?? SCHOOL_RADIUS;
 
     this.posArray   = new Float32Array(FISH_COUNT * 3);
     this.velocities = new Float32Array(FISH_COUNT * 3);
@@ -163,7 +169,7 @@ export class LyricFormation {
     const cx = this._center.x, cz = this._center.z;
     for (let i = 0; i < FISH_COUNT; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const r     = Math.random() * SCHOOL_RADIUS;
+      const r     = Math.random() * this._poolRadius;
       this.posArray[i * 3]     = cx + Math.cos(angle) * r;
       this.posArray[i * 3 + 1] = SURFACE_OFFSET; // will be corrected each frame
       this.posArray[i * 3 + 2] = cz + Math.sin(angle) * r;
@@ -241,6 +247,30 @@ export class LyricFormation {
     return this._fadeState === "out" && this._fadeTimer >= this._fadeDur;
   }
 
+  /**
+   * Instantly scatter all particles radially outward — used for the intro
+   * dive landing moment when the fish "burst" away to reveal the boat.
+   * Also triggers a fade-out so the formation disappears naturally.
+   */
+  triggerScatter() {
+    const BLAST_SPEED = 14;
+    for (let i = 0; i < FISH_COUNT; i++) {
+      const i3 = i * 3;
+      const dx = this.posArray[i3]     - this._center.x;
+      const dz = this.posArray[i3 + 2] - this._center.z;
+      const d  = Math.sqrt(dx * dx + dz * dz) || 0.1;
+      const speed = BLAST_SPEED * (0.6 + Math.random() * 0.8);
+      this.velocities[i3]     = (dx / d) * speed;
+      this.velocities[i3 + 2] = (dz / d) * speed;
+      // Extend scatter timer so particles visibly fly outward
+      this.scattered[i]   = SCATTER_DURATION * 2.5;
+      this.sizes[i]       = this._baseSizes[i]  * SCATTER_SIZE_BOOST;
+      this.alphas[i]      = Math.min(1.0, this._baseAlphas[i] * SCATTER_ALPHA_BOOST);
+    }
+    // Fade the whole formation out while particles scatter
+    this.startFade();
+  }
+
   triggerColorShift(hexColor, duration = 3.0) {
     this._colorShiftColor = new THREE.Color(hexColor);
     this._colorShiftTimer    = duration;
@@ -251,10 +281,12 @@ export class LyricFormation {
   // ── Internal ─────────────────────────────────────────────
 
   _setPhrase(text) {
+    const tw  = TEXT_WIDTH   * this._textScale;
+    const fyr = FORM_Y_RANGE * this._textScale;
     const points2D = sampleTextPoints(text);
     this._textPointsLocal = points2D.map(p => ({
-      lx: p.lx * TEXT_WIDTH,
-      lz: -p.ly * FORM_Y_RANGE, // negate: top of text faces camera
+      lx: p.lx * tw,
+      lz: -p.ly * fyr, // negate: top of text faces camera
     }));
     this._assignTargets();
   }
@@ -400,9 +432,10 @@ export class LyricFormation {
           vx += (Math.random() - 0.5) * 2.0 * dt;
           vz += (Math.random() - 0.5) * 2.0 * dt;
 
+          const poolR = this._poolRadius;
           const tcx = sc.x - px, tcz = sc.z - pz;
           const dCenter = Math.sqrt(tcx * tcx + tcz * tcz);
-          if (dCenter > SCHOOL_RADIUS * 0.7) {
+          if (dCenter > poolR * 0.7) {
             const pull = 0.5 * dt;
             vx += (tcx / dCenter) * pull;
             vz += (tcz / dCenter) * pull;
@@ -417,9 +450,9 @@ export class LyricFormation {
           // Clamp to circle around center
           const dx2 = px - sc.x, dz2 = pz - sc.z;
           const d2  = Math.sqrt(dx2 * dx2 + dz2 * dz2);
-          if (d2 > SCHOOL_RADIUS) {
-            px = sc.x + dx2 * (SCHOOL_RADIUS / d2);
-            pz = sc.z + dz2 * (SCHOOL_RADIUS / d2);
+          if (d2 > poolR) {
+            px = sc.x + dx2 * (poolR / d2);
+            pz = sc.z + dz2 * (poolR / d2);
             vx *= -0.5; vz *= -0.5;
           }
         }

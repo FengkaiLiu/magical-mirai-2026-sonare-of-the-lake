@@ -227,6 +227,9 @@ export class Boat {
     this._fwdVec  = new CANNON.Vec3(0, 0, -1);  // reused in preStep + trail branch
     this._interpQ = new CANNON.Quaternion();      // reused in update interpolation
 
+    // Auto-drive target (set by startEntrance, cleared on arrival)
+    this._autoTarget = null;
+
     // === Wake Trail Particles ===
     this.trail = new ParticleTrail(engine);
     this.trailTimer = 0;
@@ -263,7 +266,38 @@ export class Boat {
 
     const vel = this.body.velocity;
 
-    if (actions.forward) {
+    // ── Auto-drive toward target (entrance animation) ───────────────
+    if (this._autoTarget) {
+      const dx = this._autoTarget.x - this.body.position.x;
+      const dz = this._autoTarget.z - this.body.position.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+
+      if (dist < 0.8) {
+        // Arrived — brake and clear target
+        vel.x *= 0.85;
+        vel.z *= 0.85;
+        if (dist < 0.2) this._autoTarget = null;
+      } else {
+        // Desired heading toward target
+        const desiredAngle = Math.atan2(-dx, -dz); // angle in XZ, -Z is forward
+        // Current heading from quaternion
+        const fwdLocal = new CANNON.Vec3(0, 0, -1);
+        this.body.quaternion.vmult(fwdLocal, fwdLocal);
+        const currentAngle = Math.atan2(-fwdLocal.x, -fwdLocal.z);
+        // Shortest-path angular error
+        let err = desiredAngle - currentAngle;
+        while (err >  Math.PI) err -= 2 * Math.PI;
+        while (err < -Math.PI) err += 2 * Math.PI;
+        // Proportional turn
+        this.body.angularVelocity.y += Math.sign(err) * Math.min(Math.abs(err) * 4, this.turnTorque) * dt;
+        // Throttle — ease off when nearly aligned
+        const aligned = Math.abs(err) < 0.4;
+        if (aligned) {
+          vel.x += forward.x * this.forwardForce * dt;
+          vel.z += forward.z * this.forwardForce * dt;
+        }
+      }
+    } else if (actions.forward) {
       vel.x += forward.x * this.forwardForce * dt;
       vel.z += forward.z * this.forwardForce * dt;
     }
@@ -342,6 +376,21 @@ export class Boat {
 
       this.trail.spawn(this.mesh.position, this._fwdVec, speed);
     }
+  }
+
+  /**
+   * Teleport the boat behind the camera then auto-drive it to (0,0,0).
+   * startZ: world-space Z to spawn at (camera is at startZ - distance).
+   */
+  startEntrance(startZ = 12) {
+    this.body.position.set(0, 0.5, startZ);
+    this.body.velocity.set(0, 0, 0);
+    this.body.angularVelocity.set(0, 0, 0);
+    this._prevPos.set(0, 0.5, startZ);
+    this.mesh.position.set(0, 0.5, startZ);
+
+    // Auto-drive toward the lake center
+    this._autoTarget = new THREE.Vector3(0, 0, 0);
   }
 
   getPosition() {

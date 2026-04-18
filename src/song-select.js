@@ -11,6 +11,7 @@ import { Boat } from "./boat.js";
 import { CameraController } from "./camera.js";
 import { Controls } from "./controls.js";
 import { SONGS } from "./songs.js";
+import { LyricFormation } from "./fish-school.js";
 
 // ── Song Card ────────────────────────────────────────────────────────────────
 
@@ -22,6 +23,9 @@ class SongCard {
     this.z = z;
     this.baseY = 0.65;
     this.bobOffset = index * ((Math.PI * 2) / SONGS.length);
+    // Cards start underwater; _emerging drives the rise animation
+    this._currentY  = -5;
+    this._emerging  = false;
     this.scattered = false;
     this.scatterVel = new THREE.Vector3();
 
@@ -86,26 +90,34 @@ class SongCard {
     const topMat = new THREE.MeshLambertMaterial({ map: this.texture });
     // BoxGeometry face order: [+x, -x, +y (top), -y, +z, -z]
     this.mesh = new THREE.Mesh(geo, [woodSide, woodSide, topMat, woodSide, woodSide, woodSide]);
-    this.mesh.position.set(x, this.baseY, z);
-    this.mesh.lookAt(0, this.baseY, 0); // point the front edge at the lake center
+    this.mesh.position.set(x, this._currentY, z);
+    this.mesh.lookAt(0, this._currentY, 0); // point the front edge at the lake center
 
     // Tilt the board up by 45 degrees so the top face (with the text) faces you!
     this.mesh.rotateX(Math.PI / 3);
 
     this.mesh.castShadow = true;
+    // Hidden underwater until emerge() is called after the dive lands
+    this.mesh.visible = false;
     engine.scene.add(this.mesh);
 
     // Support post
     const postGeo = new THREE.CylinderGeometry(0.07, 0.07, 1.4, 8);
     const postMat = new THREE.MeshLambertMaterial({ color: 0x6b4020 });
     this.post = new THREE.Mesh(postGeo, postMat);
-    // Position pole so its top stops exactly below the board's top surface.
-    // The pole height is 1.4, so moving it down by 0.72 from the board center aligns it perfectly.
-    this.post.position.set(x, this.baseY - 0.72, z);
+    this.post.position.set(x, this._currentY - 0.72, z);
+    this.post.visible = false; // hidden until emerge()
     engine.scene.add(this.post);
   }
 
-  update(dt, elapsed, isHovered) {
+  /** Begin the rising-from-water animation for this card. */
+  emerge() {
+    this._emerging    = true;
+    this.mesh.visible = true;
+    this.post.visible = true;
+  }
+
+  update(dt, elapsed, _isHovered) {
     if (this.scattered) {
       this.mesh.position.x += this.scatterVel.x * dt;
       this.mesh.position.z += this.scatterVel.z * dt;
@@ -116,9 +128,22 @@ class SongCard {
       return;
     }
 
-    // Gentle bob
-    this.mesh.position.y = this.baseY + Math.sin(elapsed * 1.2 + this.bobOffset) * 0.09;
-    this.post.position.y = this.mesh.position.y - 0.72;
+    if (this._emerging && this._currentY < this.baseY) {
+      // Exponential ease-out rise: covers ~95 % of distance in ~1.5 s
+      const alpha = 1 - Math.pow(1 - 0.05, dt * 60);
+      this._currentY += (this.baseY - this._currentY) * alpha;
+      if (this._currentY >= this.baseY - 0.01) {
+        this._currentY = this.baseY;
+        this._emerging = false;
+      }
+    }
+
+    const bobY = this._emerging
+      ? this._currentY  // no bob while still rising
+      : this.baseY + Math.sin(elapsed * 1.2 + this.bobOffset) * 0.09;
+
+    this.mesh.position.y = bobY;
+    this.post.position.y = bobY - 0.72;
   }
 
   scatter() {
@@ -153,6 +178,7 @@ export class SongSelectScene {
     this.cards = [];
     this.selected = false;
 
+    this._disposed = false;
     this._updatable = { update: (dt, el) => this._update(dt, el) };
 
     // Raycaster for hover glow
@@ -169,11 +195,14 @@ export class SongSelectScene {
     this.env = new Environment(engine);
     this.engine.env = this.env;
     this.controls = new Controls();
+    // Disable input until after the dive lands
+    this.controls.locked = true;
     this.boat = new Boat(engine, this.controls);
+    this.boat.mesh.visible = false; // hidden until particles scatter after dive
     this.cam = new CameraController(engine);
     this.cam.attachBoat(this.boat);
 
-    // 6 cards in a horizontal row
+    // 6 cards in a horizontal row, all starting underwater
     SONGS.forEach((song, i) => {
       const spacing = 5.5;
       const totalWidth = (SONGS.length - 1) * spacing; // 27.5 for 6 songs
@@ -182,27 +211,149 @@ export class SongSelectScene {
       this.cards.push(new SongCard(song, i, engine, x, z));
     });
 
-    // Hide the loading overlay (it starts visible and blocks the select screen)
+    // Hide the overlay but keep intro-screen visible
     document.getElementById("overlay")?.classList.add("hidden");
 
-    // Show hint
-    const hint = document.getElementById("select-hint");
-    if (hint) hint.style.display = "block";
+    // ── Intro timeline ────────────────────────────────────────────
+    this._introFormations = [];
+    this._introActive = true;
+    // beginIntroSequence() is called externally by the Start button in main.js
 
     engine.addUpdatable(this._updatable);
+  }
+
+  // ─── Intro helpers ─────────────────────────────────────────────
+
+  /**
+   * Called by the Start button click in main.js.
+   * Fades the 2-D intro screen, reveals the overhead lake view, spawns
+   * the fish-particle title text, then dives to the boat after a hold.
+   */
+  beginIntroSequence() {
+    if (this._disposed) return;
+
+    // Fade the 2D screen away — 3D overhead lake is now visible
+    const introEl = document.getElementById("intro-screen");
+    if (introEl) {
+      introEl.classList.add("hidden");
+      setTimeout(() => introEl.classList.add("gone"), 950);
+    }
+
+    // Small pause so the fade-out plays before fish appear
+    setTimeout(() => this._spawnTitleFormations(), 500);
+  }
+
+  _spawnTitleFormations() {
+    if (this._disposed) return;
+    const TITLE_COLOR = 0x40d8f0;
+    const SUB_COLOR   = 0x88e8ff;
+
+    // textScale=2.8 → formation ~67 world units wide (visible from H=90 overhead).
+    // poolRadius=38 → particles start scattered over a large area before forming.
+    const f1 = new LyricFormation(
+      this.engine,
+      new THREE.Vector3(0, 0, -8),
+      "Magic Mirai",
+      TITLE_COLOR,
+      { textScale: 2.8, poolRadius: 38 }
+    );
+    // Subtitle slightly smaller so it sits clearly below the main title
+    const f2 = new LyricFormation(
+      this.engine,
+      new THREE.Vector3(0, 0, 10),
+      "Sonare of the Lake",
+      SUB_COLOR,
+      { textScale: 1.8, poolRadius: 30 }
+    );
+    this._introFormations = [f1, f2];
+
+    // Hold the formed titles for 3.5 s, then dive
+    setTimeout(() => this._beginDive(), 3500);
+  }
+
+  _beginDive() {
+    if (this._disposed) return;
+    // Callback fires when the camera reaches the boat-follow position (~1.2 s)
+    this.cam.onDiveComplete = () => this._onDiveLanded();
+    this.cam.startDive();
+  }
+
+  _onDiveLanded() {
+    if (this._disposed) return;
+
+    // Scatter fish particles — they burst outward revealing the boat
+    for (const f of this._introFormations) f.triggerScatter();
+
+    // Lock camera at its landed position; boat sails in while cam is still
+    this.cam.revealLock = true;
+    this.boat.mesh.visible = true;
+    this.boat.startEntrance();
+
+    // Brief sun flash for "impact" feel
+    if (this.env && this.env.sunLight) {
+      const sun = this.env.sunLight;
+      sun.intensity = sun.intensity * 1.2; // 20 % over-exposure
+      setTimeout(() => { if (sun) sun.intensity = this.env.baseSunIntensity; }, 350);
+    }
+
+    // Emerge all song cards from underwater, staggered slightly per card
+    this.cards.forEach((card, i) => {
+      setTimeout(() => {
+        card.emerge();
+        // Ripple at each card's world position as it breaks the surface
+        if (this.water && this.water.triggerRipple) {
+          this.water.triggerRipple(new THREE.Vector3(card.x, 0, card.z));
+        }
+      }, i * 80);
+    });
+
+    // Re-enable controls & show hint after cards finish rising (~1.8 s)
+    setTimeout(() => {
+      if (this._disposed) return;
+      this.controls.locked = false;
+      this._introActive = false;
+      const hint = document.getElementById("select-hint");
+      if (hint) hint.style.display = "block";
+    }, 1800);
   }
 
   _update(dt, elapsed) {
     if (this.selected) return;
 
-    // Hover detection via raycasting
-    this.raycaster.setFromCamera(this.mouse, this.engine.camera);
-    const meshes = this.cards.map((c) => c.mesh);
-    const hits = this.raycaster.intersectObjects(meshes);
-    const hoveredMesh = hits.length > 0 ? hits[0].object : null;
+    // Tick intro fish formations while they're alive
+    if (this._introFormations.length > 0) {
+      for (let i = this._introFormations.length - 1; i >= 0; i--) {
+        const f = this._introFormations[i];
+        f.update(dt, elapsed, null, null);
+        if (f.faded) {
+          f.dispose();
+          this._introFormations.splice(i, 1);
+        }
+      }
+    }
+
+    // Cards always need updating (emergence animation runs during intro too)
+    let hoveredMesh = null;
+    if (!this._introActive) {
+      this.raycaster.setFromCamera(this.mouse, this.engine.camera);
+      const meshes = this.cards.map((c) => c.mesh);
+      const hits = this.raycaster.intersectObjects(meshes);
+      hoveredMesh = hits.length > 0 ? hits[0].object : null;
+    }
 
     for (const card of this.cards) {
       card.update(dt, elapsed, card.mesh === hoveredMesh);
+    }
+
+    // Don't check collision until intro is done
+    if (this._introActive) return;
+
+    // Release camera reveal lock once the boat's auto-drive has finished
+    if (this.cam.revealLock) {
+      if (!this.boat._autoTarget) {
+        this.cam.revealLock = false;
+      }
+      return; // no collision check while boat is still entering
     }
 
     // Collision: boat within 2.5 units of card center
@@ -225,9 +376,13 @@ export class SongSelectScene {
   }
 
   dispose() {
+    this._disposed = true;
     this.engine.removeUpdatable(this._updatable);
 
     window.removeEventListener("mousemove", this._onMouseMove);
+
+    for (const f of this._introFormations) f.dispose();
+    this._introFormations = [];
 
     this.water.dispose();
     this.env.dispose();

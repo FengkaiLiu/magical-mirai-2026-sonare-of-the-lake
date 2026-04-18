@@ -28,7 +28,11 @@ export class Controls {
       KeyD: "right",      ArrowRight: "right",
     };
 
+    // Set locked = true to suppress all input (used during intro sequence)
+    this.locked = false;
+
     this._onKeyDown = (e) => {
+      if (this.locked) return;
       const action = this._keyMap[e.code];
       if (action) {
         this.actions[action] = true;

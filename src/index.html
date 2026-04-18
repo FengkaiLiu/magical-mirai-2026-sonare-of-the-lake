@@ -9,6 +9,25 @@
 <body>
   <div id="app"></div>
 
+  <!-- ── Intro / Loading screen ───────────────────────────────────── -->
+  <div id="intro-screen">
+
+    <!-- Title text -->
+    <div id="intro-title">
+      <div class="intro-logo">Magic Mirai</div>
+      <div class="intro-sub">Sonare of the Lake</div>
+
+      <!-- Loading phase -->
+      <div id="intro-progress-wrap">
+        <div id="intro-progress-bar"><div id="intro-progress-fill"></div></div>
+        <div id="intro-progress-pct">0%</div>
+      </div>
+
+      <!-- Ready phase (hidden until load complete) -->
+      <button id="intro-start-btn" disabled>▶ Start</button>
+    </div>
+  </div>
+
   <!-- State transition fade -->
   <div id="transition-overlay"></div>
 

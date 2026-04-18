@@ -9,7 +9,8 @@
 import * as THREE from "three";
 import { LyricFormation } from "./fish-school.js";
 
-const MAX_PHRASES    = 2;
+const MAX_PHRASES    = 1;   // only one phrase visible at a time — prevents overlap
+const PHRASE_LIFE    = 5.0; // seconds before a formation auto-fades
 const SPAWN_DIST     = 7;   // distance from boat to formation center
 const SPAWN_SIDE_OFF = 1.5; // slight lateral offset so text doesn't bisect the boat
 
@@ -58,6 +59,7 @@ export class FishLyricSystem {
 
     const color = 0x88eeff;
     const formation = new LyricFormation(this.engine, center, text, color);
+    formation._age = 0; // tracked here for auto-expire
     this._formations.push(formation);
   }
 
@@ -79,6 +81,9 @@ export class FishLyricSystem {
     const boatVel = this.boat.body.velocity; // CANNON.Vec3 — live reference
     for (let i = this._formations.length - 1; i >= 0; i--) {
       const f = this._formations[i];
+      // Auto-expire after PHRASE_LIFE seconds
+      f._age += dt;
+      if (f._age >= PHRASE_LIFE && f._fadeState !== "out") f.startFade();
       f.update(dt, elapsed, boatPos, boatVel);
       if (f.faded) {
         f.dispose();
