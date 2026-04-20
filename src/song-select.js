@@ -257,7 +257,7 @@ export class SongSelectScene {
       new THREE.Vector3(0, 0, -10),
       "Magic Mirai",
       TITLE_COLOR,
-      { textScale: 10, poolRadius: 28 }
+      { textScale: 10, poolRadius: 28, letterSpacing: "10px" }
     );
     // Subtitle slightly smaller so it sits clearly below the main title
     const f2 = new LyricFormation(
@@ -265,7 +265,7 @@ export class SongSelectScene {
       new THREE.Vector3(0, 0, 3),
       "Sonare of the Lake",
       SUB_COLOR,
-      { textScale: 4, poolRadius: 20 }
+      { textScale: 4, poolRadius: 20, letterSpacing: "10px" }
     );
     this._introFormations = [f1, f2];
 

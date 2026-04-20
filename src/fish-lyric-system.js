@@ -58,7 +58,14 @@ export class FishLyricSystem {
     );
 
     const color = 0x88eeff;
-    const formation = new LyricFormation(this.engine, center, text, color);
+    const formation = new LyricFormation(this.engine, center, text, color, {
+      particleCount: 2400,
+      sizeBase:   0.1,
+      sizeRange:  0.07,
+      glowMin:    1.8,
+      glowMax:    4.0,
+      outlineOnly: false,
+    });
     formation._age = 0; // tracked here for auto-expire
     this._formations.push(formation);
   }

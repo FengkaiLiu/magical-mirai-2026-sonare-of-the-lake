@@ -8,7 +8,7 @@
 import * as THREE from "three";
 
 export class CameraController {
-  constructor(engine) {
+  constructor(engine, { skipIntro = false } = {}) {
     this.engine = engine;
     this.camera = engine.camera;
 
@@ -28,7 +28,7 @@ export class CameraController {
     // When isIntro=true the camera is locked overhead at (0,90,0) looking
     // straight down at the lake centre. Call startDive() to begin the
     // cinematic plunge to the boat-follow position.
-    this.isIntro        = true;
+    this.isIntro        = !skipIntro;
     this._diveStarted   = false;
     this._diveTimer     = 0;
     this._diveDuration  = 3.5;   // seconds — long enough to feel dramatic
@@ -37,13 +37,19 @@ export class CameraController {
     this._revealTransition   = 0;    // counts up after revealLock releases to ease smoothing in
     this._revealTransDur     = 1.5;  // seconds to ramp smoothing from dive-speed to normal
 
-    // Start right at the overhead position so there is no camera snap
-    this.currentPos.set(0, 90, 0);
-    this.currentLook.set(0, 0, 0);
+    // Start at the appropriate position — overhead for intro, boat-follow for direct play
+    if (skipIntro) {
+      this.currentPos.set(0, this.height, this.distance);
+      this.currentLook.set(0, 0, -this.lookAhead);
+      this._revealTransition = this._revealTransDur; // skip ramp-up too
+    } else {
+      this.currentPos.set(0, 90, 0);
+      this.currentLook.set(0, 0, 0);
+    }
 
     // 初期位置
     this.camera.position.copy(this.currentPos);
-    this.camera.lookAt(0, 0, 0);
+    this.camera.lookAt(this.currentLook);
     this.camera.fov = 50;
     this.camera.updateProjectionMatrix();
 

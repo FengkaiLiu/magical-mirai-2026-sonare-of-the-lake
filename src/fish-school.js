@@ -65,6 +65,8 @@ const glowFrag = /* glsl */ `
   uniform float uColorBlend;
   uniform float uIntensity;
   uniform float uAlphaMul;
+  uniform float uGlowMin;
+  uniform float uGlowMax;
   varying float vAlpha;
 
   void main() {
@@ -73,7 +75,7 @@ const glowFrag = /* glsl */ `
 
     float core = exp(-d * d * 28.0);
     float halo = exp(-d * d * 7.0) * 0.6;
-    float glowBoost = mix(4.0, 9.0, uIntensity);
+    float glowBoost = mix(uGlowMin, uGlowMax, uIntensity);
     float glow = (core + halo) * glowBoost;
 
     vec3 themeColor = mix(uColor, uTargetColor, uColorBlend);
@@ -87,8 +89,9 @@ const glowFrag = /* glsl */ `
 
 const _textCache = new Map();
 
-function sampleTextPoints(text) {
-  if (_textCache.has(text)) return _textCache.get(text);
+function sampleTextPoints(text, letterSpacing = "", maxPoints = MAX_SAMPLE_POINTS, outlineOnly = true) {
+  const cacheKey = `${text}::${letterSpacing}::${maxPoints}::${outlineOnly}`;
+  if (_textCache.has(cacheKey)) return _textCache.get(cacheKey);
 
   const canvasW = 2048, canvasH = 256;
   const canvas = document.createElement("canvas");
@@ -101,6 +104,7 @@ function sampleTextPoints(text) {
   const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   let fontSize = 80;
   ctx.font = font(fontSize);
+  ctx.letterSpacing = letterSpacing;
   while (ctx.measureText(text).width > canvasW * 0.92 && fontSize > 12) {
     fontSize -= 4;
     ctx.font = font(fontSize);
@@ -108,35 +112,42 @@ function sampleTextPoints(text) {
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.letterSpacing = "10px";
   ctx.fillText(text, canvasW / 2, canvasH / 2);
 
   const pixels = ctx.getImageData(0, 0, canvasW, canvasH).data;
-  // Outline only: keep pixels that are white AND touch at least one black neighbor
   const white = [];
-  for (let y = 1; y < canvasH - 1; y++) {
-    for (let x = 1; x < canvasW - 1; x++) {
-      if (pixels[(y * canvasW + x) * 4] <= 128) continue;
-      // Check 8-connected neighbors for a dark pixel
-      const hasEdge =
-        pixels[((y - 1) * canvasW + x - 1) * 4] <= 128 ||
-        pixels[((y - 1) * canvasW + x    ) * 4] <= 128 ||
-        pixels[((y - 1) * canvasW + x + 1) * 4] <= 128 ||
-        pixels[(y       * canvasW + x - 1) * 4] <= 128 ||
-        pixels[(y       * canvasW + x + 1) * 4] <= 128 ||
-        pixels[((y + 1) * canvasW + x - 1) * 4] <= 128 ||
-        pixels[((y + 1) * canvasW + x    ) * 4] <= 128 ||
-        pixels[((y + 1) * canvasW + x + 1) * 4] <= 128;
-      if (hasEdge) white.push({ x, y });
+  if (outlineOnly) {
+    // Keep pixels that are white AND touch at least one black neighbor (8-connected edge)
+    for (let y = 1; y < canvasH - 1; y++) {
+      for (let x = 1; x < canvasW - 1; x++) {
+        if (pixels[(y * canvasW + x) * 4] <= 128) continue;
+        const hasEdge =
+          pixels[((y - 1) * canvasW + x - 1) * 4] <= 128 ||
+          pixels[((y - 1) * canvasW + x    ) * 4] <= 128 ||
+          pixels[((y - 1) * canvasW + x + 1) * 4] <= 128 ||
+          pixels[(y       * canvasW + x - 1) * 4] <= 128 ||
+          pixels[(y       * canvasW + x + 1) * 4] <= 128 ||
+          pixels[((y + 1) * canvasW + x - 1) * 4] <= 128 ||
+          pixels[((y + 1) * canvasW + x    ) * 4] <= 128 ||
+          pixels[((y + 1) * canvasW + x + 1) * 4] <= 128;
+        if (hasEdge) white.push({ x, y });
+      }
+    }
+  } else {
+    // Filled: keep all white pixels
+    for (let y = 0; y < canvasH; y++) {
+      for (let x = 0; x < canvasW; x++) {
+        if (pixels[(y * canvasW + x) * 4] > 128) white.push({ x, y });
+      }
     }
   }
 
   const pts = [];
-  if (white.length <= MAX_SAMPLE_POINTS) {
+  if (white.length <= maxPoints) {
     pts.push(...white);
   } else {
-    const step = white.length / MAX_SAMPLE_POINTS;
-    for (let i = 0; i < MAX_SAMPLE_POINTS; i++) pts.push(white[Math.floor(i * step)]);
+    const step = white.length / maxPoints;
+    for (let i = 0; i < maxPoints; i++) pts.push(white[Math.floor(i * step)]);
   }
 
   // lx ∈ [-0.5, 0.5] horizontal, ly ∈ [-0.5, 0.5] (Y flipped so top is positive)
@@ -145,7 +156,7 @@ function sampleTextPoints(text) {
     ly: 0.5 - p.y / canvasH,
   }));
 
-  _textCache.set(text, result);
+  _textCache.set(cacheKey, result);
   return result;
 }
 
@@ -157,9 +168,14 @@ export class LyricFormation {
    * @param {THREE.Vector3} center     — world position to spawn at (on water surface)
    * @param {string} text              — lyric phrase
    * @param {number} color             — hex color (theme particle color)
-   * @param {object} [opts]            — optional overrides
-   * @param {number} [opts.textScale]  — multiplier for TEXT_WIDTH / FORM_Y_RANGE (default 1)
-   * @param {number} [opts.poolRadius] — initial scatter radius for particles (default SCHOOL_RADIUS)
+   * @param {object} [opts]              — optional overrides
+   * @param {number} [opts.textScale]    — multiplier for TEXT_WIDTH / FORM_Y_RANGE (default 1)
+   * @param {number} [opts.poolRadius]   — initial scatter radius for particles (default SCHOOL_RADIUS)
+   * @param {number} [opts.particleCount]— number of particles (default FISH_COUNT)
+   * @param {number} [opts.sizeBase]     — base particle size (default 0.22)
+   * @param {number} [opts.sizeRange]    — random size range added to base (default 0.16)
+   * @param {number} [opts.glowMin]      — min glow boost at low intensity (default 4.0)
+   * @param {number} [opts.glowMax]      — max glow boost at high intensity (default 9.0)
    */
   constructor(engine, center, text, color, opts = {}) {
     this.engine  = engine;
@@ -170,19 +186,28 @@ export class LyricFormation {
     this._textScale  = opts.textScale  ?? 1.0;
     this._poolRadius = opts.poolRadius ?? SCHOOL_RADIUS;
 
-    this.posArray   = new Float32Array(FISH_COUNT * 3);
-    this.velocities = new Float32Array(FISH_COUNT * 3);
-    this.targets    = new Float32Array(FISH_COUNT * 3); // local [lx, 0, lz]
-    this.hasTarget  = new Uint8Array(FISH_COUNT);
-    this.phases      = new Float32Array(FISH_COUNT);
-    this.sizes       = new Float32Array(FISH_COUNT);
-    this.alphas      = new Float32Array(FISH_COUNT);
-    this.scattered   = new Float32Array(FISH_COUNT); // scatter countdown per particle
-    this._baseSizes  = new Float32Array(FISH_COUNT); // original sizes for restore
-    this._baseAlphas = new Float32Array(FISH_COUNT); // original alphas for restore
+    const particleCount   = opts.particleCount   ?? FISH_COUNT;
+    const sizeBase        = opts.sizeBase        ?? 0.22;
+    const sizeRange       = opts.sizeRange       ?? 0.16;
+    const glowMin         = opts.glowMin         ?? 4.0;
+    const glowMax         = opts.glowMax         ?? 9.0;
+    this._letterSpacing   = opts.letterSpacing   ?? "";
+    this._outlineOnly     = opts.outlineOnly     ?? true;
+    this._particleCount   = particleCount;
+
+    this.posArray   = new Float32Array(particleCount * 3);
+    this.velocities = new Float32Array(particleCount * 3);
+    this.targets    = new Float32Array(particleCount * 3); // local [lx, 0, lz]
+    this.hasTarget  = new Uint8Array(particleCount);
+    this.phases      = new Float32Array(particleCount);
+    this.sizes       = new Float32Array(particleCount);
+    this.alphas      = new Float32Array(particleCount);
+    this.scattered   = new Float32Array(particleCount); // scatter countdown per particle
+    this._baseSizes  = new Float32Array(particleCount); // original sizes for restore
+    this._baseAlphas = new Float32Array(particleCount); // original alphas for restore
 
     const cx = this._center.x, cz = this._center.z;
-    for (let i = 0; i < FISH_COUNT; i++) {
+    for (let i = 0; i < particleCount; i++) {
       const angle = Math.random() * Math.PI * 2;
       const r     = Math.random() * this._poolRadius;
       this.posArray[i * 3]     = cx + Math.cos(angle) * r;
@@ -194,7 +219,7 @@ export class LyricFormation {
       this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
 
       this.phases[i] = Math.random() * Math.PI * 2;
-      this.sizes[i]  = 0.22 + Math.random() * 0.16;
+      this.sizes[i]  = sizeBase + Math.random() * sizeRange;
       this.alphas[i] = 1.0;
       this._baseSizes[i]  = this.sizes[i];
       this._baseAlphas[i] = this.alphas[i];
@@ -212,6 +237,8 @@ export class LyricFormation {
       uIntensity:   { value: 0 },
       uAlphaMul:    { value: 0 },   // starts at 0, fades in on spawn
       uTime:        { value: 0 },
+      uGlowMin:     { value: glowMin },
+      uGlowMax:     { value: glowMax },
     };
 
     const mat = new THREE.ShaderMaterial({
@@ -269,7 +296,7 @@ export class LyricFormation {
    */
   triggerScatter() {
     const BLAST_SPEED = 14;
-    for (let i = 0; i < FISH_COUNT; i++) {
+    for (let i = 0; i < this._particleCount; i++) {
       const i3 = i * 3;
       const dx = this.posArray[i3]     - this._center.x;
       const dz = this.posArray[i3 + 2] - this._center.z;
@@ -298,7 +325,7 @@ export class LyricFormation {
   _setPhrase(text) {
     const tw  = TEXT_WIDTH   * this._textScale;
     const fyr = FORM_Y_RANGE * this._textScale;
-    const points2D = sampleTextPoints(text);
+    const points2D = sampleTextPoints(text, this._letterSpacing, this._particleCount, this._outlineOnly);
     this._textPointsLocal = points2D.map(p => ({
       lx: p.lx * tw,
       lz: -p.ly * fyr, // negate: top of text faces camera
@@ -320,12 +347,12 @@ export class LyricFormation {
     }));
     worldTargets.sort((a, b) => a.wx - b.wx);
 
-    const fishByX = Array.from({ length: FISH_COUNT }, (_, i) => ({
+    const fishByX = Array.from({ length: this._particleCount }, (_, i) => ({
       idx: i, x: this.posArray[i * 3],
     }));
     fishByX.sort((a, b) => a.x - b.x);
 
-    for (let i = 0; i < FISH_COUNT; i++) this.hasTarget[i] = 0;
+    for (let i = 0; i < this._particleCount; i++) this.hasTarget[i] = 0;
     const used = new Set();
 
     for (const wt of worldTargets) {
@@ -419,7 +446,7 @@ export class LyricFormation {
       if (spd > 0.05) { boatDirX = boatVel.x / spd; boatDirZ = boatVel.z / spd; }
     }
 
-    for (let i = 0; i < FISH_COUNT; i++) {
+    for (let i = 0; i < this._particleCount; i++) {
       const i3 = i * 3;
       let px = pos[i3], pz = pos[i3 + 2];
       let vx = vel[i3], vz = vel[i3 + 2];

@@ -31,7 +31,7 @@ export class LakeScene {
     // Boat, camera, controls
     this.controls = new Controls();
     this.boat = new Boat(engine, this.controls);
-    this.cam = new CameraController(engine);
+    this.cam = new CameraController(engine, { skipIntro: true });
     this.cam.attachBoat(this.boat);
 
     // Lyrics (uses song theme particle color)
