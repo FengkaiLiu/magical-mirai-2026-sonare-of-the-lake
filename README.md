@@ -41,6 +41,7 @@
 
 ## Reference
 
-- [Low Poly World in Blender - Easy and Fun](https://youtu.be/dlWwyolJ4OM?si=WbB0HAs90d6DF9E7) - Lowpoly World Inspiration
+- [Bruno Simon 2019 Portfolio](https://2019.bruno-simon.com/) - Overall Inspiration
+- [Low Poly World in Blender - Easy and Fun](https://youtu.be/dlWwyolJ4OM?si=WbB0HAs90d6DF9E7) - Low-poly World Inspiration
 - [Adobe Stock #1741834134](https://stock.adobe.com) - Boat Inspiration
 - [Miku Cube Chibi boat decoration](https://www.bilibili.com/video/BV1Yi4y1Q7FL/?share_source=copy_web) - Cube Miku Chibi Inspiration
