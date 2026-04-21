@@ -121,23 +121,45 @@ export class Environment {
     }
 
     // === Terrain from GLTF ===
+    this.coralMeshes = []; // { mesh, materials: MeshStandardMaterial[] }
     const loader = new GLTFLoader();
     loader.load("/models/terrain.glb", (gltf) => {
       this.terrainModel = gltf.scene;
-      
+
       this.terrainModel.traverse((child) => {
         if (child.isMesh) {
           child.castShadow = true;
           child.receiveShadow = true;
+
+          // Detect coral meshes by name and set up emissive glow
+          if (/coral/i.test(child.name)) {
+            const srcMats = Array.isArray(child.material) ? child.material : [child.material];
+            const emissiveMats = [];
+            const cloned = srcMats.map(m => {
+              if (m.isMeshStandardMaterial || m.isMeshPhongMaterial || m.isMeshLambertMaterial) {
+                const c = m.clone();
+                c.emissive = new THREE.Color(0x80ffee);
+                c.emissiveIntensity = 0.3;
+                emissiveMats.push(c);
+                return c;
+              }
+              return m;
+            });
+            child.material = Array.isArray(child.material) ? cloned : cloned[0];
+            if (emissiveMats.length > 0) {
+              this.coralMeshes.push({ mesh: child, materials: emissiveMats });
+            }
+          }
         }
       });
-      
+
       // Position and scale the terrain to fit around the lake
       this.terrainModel.position.set(0, 12, 0);
       this.terrainModel.scale.set(1, 1, 1);
-      
+
       scene.add(this.terrainModel);
       this._sceneObjects.push(this.terrainModel);
+      console.log(`[Environment] Coral meshes found: ${this.coralMeshes.length}`);
     });
 
     // === Floating particles ===
@@ -181,12 +203,29 @@ export class Environment {
       this.analyser.getByteFrequencyData(this.audioData);
       let sum = 0;
       for (let i = 0; i < 5; i++) sum += this.audioData[i];
-      energy = (sum / 5) / 255.0; 
+      energy = (sum / 5) / 255.0;
       energy = Math.pow(Math.max(0, energy - 0.4) / 0.6, 2.0);
     }
 
     if (!this.smoothedEnergy) this.smoothedEnergy = 0;
     this.smoothedEnergy += (energy - this.smoothedEnergy) * dt * 15.0;
+
+    // Beat detection for coral pulse: fast energy tracks raw hits, spikes pulse when beat arrives
+    if (!this.fastEnergy)  this.fastEnergy  = 0;
+    if (!this.coralPulse)  this.coralPulse  = 0;
+    this.fastEnergy += (energy - this.fastEnergy) * Math.min(1, dt * 30.0);
+    if (this.fastEnergy > this.smoothedEnergy + 0.18 && this.fastEnergy > 0.12) {
+      this.coralPulse = 1.0; // trigger on beat transient
+    }
+    this.coralPulse = Math.max(0, this.coralPulse - dt * 3.5); // decay ~0.3 s
+
+    // Update coral emissive glow
+    if (this.coralMeshes.length > 0) {
+      const coralIntensity = 0.3 + this.smoothedEnergy * 0.6 + this.coralPulse * 2.2;
+      for (const { materials } of this.coralMeshes) {
+        for (const m of materials) m.emissiveIntensity = coralIntensity;
+      }
+    }
 
     // React to audio!
     this.sunLight.intensity = this.baseSunIntensity + this.smoothedEnergy * 1.5;
@@ -250,6 +289,7 @@ export class Environment {
         }
       });
     }
+    // coralMeshes materials were cloned above — already disposed in the traverse above
     this.particles.geometry.dispose(); this.particles.material.dispose();
     for (const c of this.clouds) c.sprite.material.dispose();
     this.engine = null;

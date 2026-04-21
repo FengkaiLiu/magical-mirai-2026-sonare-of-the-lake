@@ -191,13 +191,18 @@ class WaterDecal {
 
 class SkyLyricSystem {
   constructor(engine, colorHex) {
-    this.engine   = engine;
-    this.colorHex = colorHex;
-    this.phrases  = [];
+    this.engine          = engine;
+    this.colorHex        = colorHex;
+    this.phrases         = [];
+    this.convergenceTime = 1.5; // seconds — set via setConvergenceTime() based on song BPM
 
     // Pre-allocated dummy — avoids `new THREE.Object3D()` every frame in update()
     this._dummy = new THREE.Object3D();
     // NOTE: particle geometry is shared via getSkyParticleGeo() — not stored per-instance
+  }
+
+  setConvergenceTime(t) {
+    this.convergenceTime = Math.max(0.4, t);
   }
 
   addPhrase(text, boatPos) {
@@ -283,7 +288,7 @@ class SkyLyricSystem {
     for (const p of this.phrases) {
       p.age += dt;
 
-      const progress = Math.min(1.0, p.age / 1.5);
+      const progress = Math.min(1.0, p.age / this.convergenceTime);
       const ease = 1.0 - Math.pow(1.0 - progress, 3); // cubic ease-out
 
       for (let i = 0; i < p.points.length; i++) {
@@ -358,6 +363,10 @@ export class LyricManager {
   setActiveColor(hexColor) {
     this.colorHex = hexColor;
     // Sky lyric formations stay white regardless of note color
+  }
+
+  setSkyConvergenceTime(t) {
+    this.skySystem.setConvergenceTime(t);
   }
 
   addPhrase(text) {

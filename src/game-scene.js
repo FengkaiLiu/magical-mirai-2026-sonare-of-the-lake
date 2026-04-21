@@ -277,6 +277,22 @@ export class GameScene {
       },
       onVideoReady: (v) => {
         if (!v) return;
+
+        // Derive BPM from beat data and set sky-particle convergence speed.
+        // Fast songs (e.g. TAKEOVER ~150 BPM) → short convergence so particles
+        // form text before the next lyric arrives; slow songs can afford more time.
+        if (this.lyrics && Array.isArray(v.beats) && v.beats.length > 0) {
+          const validBeats = v.beats.filter(b => b.duration > 0);
+          if (validBeats.length > 0) {
+            const avgMs  = validBeats.reduce((s, b) => s + b.duration, 0) / validBeats.length;
+            const bpm    = 60000 / avgMs;
+            // 2 beat-lengths as convergence time: 80 BPM→1.5 s, 120 BPM→1.0 s, 150 BPM→0.8 s
+            const ct = Math.max(0.5, Math.min(2.5, 120 / bpm));
+            this.lyrics.setSkyConvergenceTime(ct);
+            console.log(`[SkyLyric] BPM ≈ ${bpm.toFixed(1)}, convergence time = ${ct.toFixed(2)} s`);
+          }
+        }
+
         // Pre-warm sampleTextPoints cache for every phrase so the getImageData
         // GPU readback stall happens here (during load) rather than mid-playback.
         const seen = new Set();
