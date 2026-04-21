@@ -25,6 +25,9 @@ function waveHeight(x, z, t, energy = 0) {
  * mesh only adds light where the glow/text pixels are.
  */
 function makeGlowTexture(text, colorHex = 0x00eeff) {
+  const key = `${text}:${colorHex}`;
+  if (_glowCache.has(key)) return _glowCache.get(key);
+
   const W = 512, H = 256;
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -69,7 +72,14 @@ function makeGlowTexture(text, colorHex = 0x00eeff) {
   ctx.fillStyle  = "rgba(255,255,255,0.95)";
   ctx.fillText(text, W / 2, H / 2);
 
-  return new THREE.CanvasTexture(canvas);
+  const tex = new THREE.CanvasTexture(canvas);
+  if (_glowCache.size >= 25) {
+    const oldKey = _glowCache.keys().next().value;
+    _glowCache.get(oldKey).dispose();
+    _glowCache.delete(oldKey);
+  }
+  _glowCache.set(key, tex);
+  return tex;
 }
 
 // Shared horizontal plane geometry (2:1 aspect matches the 512×256 canvas).
@@ -91,9 +101,12 @@ function getSkyParticleGeo() {
   return _skyParticleGeo;
 }
 
-// Canvas pixel cache: avoids re-rendering identical lyric text (e.g. chorus repeats).
-// Stores ImageData.data (Uint8ClampedArray) keyed by text string. Capped at 20 entries.
-const _skyCanvasCache = new Map();
+// Glow texture cache: avoids re-rendering identical text onto canvas every phrase change.
+// Textures are small (512×256) so keeping up to 25 in GPU memory is fine (~8 MB).
+const _glowCache = new Map();
+
+// Sky lyric points cache: avoids the canvas render + pixel sampling loop for repeated lyrics.
+const _skyPointsCache = new Map();
 
 class WaterDecal {
   constructor(text, engine, colorHex, boatPos) {
@@ -168,7 +181,8 @@ class WaterDecal {
     if (this._disposed) return;
     this._disposed = true;
     this.engine.scene.remove(this.mesh);
-    this.material.map?.dispose();
+    // texture is managed by _glowCache — do NOT dispose it here
+    this.material.map = null;
     this.material.dispose();
     // _decalGeo is shared — do NOT dispose it here
     this.engine = null;
@@ -197,10 +211,10 @@ class SkyLyricSystem {
       }
     }
 
-    // Resolve pixel data — use cache to skip canvas render for repeated lyrics (chorus)
-    let data;
-    if (_skyCanvasCache.has(text)) {
-      data = _skyCanvasCache.get(text);
+    // Resolve points — cache the full sampled set to skip canvas render + pixel loop for repeats
+    let cachedPts;
+    if (_skyPointsCache.has(text)) {
+      cachedPts = _skyPointsCache.get(text);
     } else {
       const canvas = document.createElement("canvas");
       canvas.width  = 1024;
@@ -223,32 +237,30 @@ class SkyLyricSystem {
       ctx.textBaseline = "middle";
       ctx.fillText(text, 512, 128);
 
-      data = ctx.getImageData(0, 0, 1024, 256).data;
-      // Evict oldest entry when cap is reached
-      if (_skyCanvasCache.size >= 20) _skyCanvasCache.delete(_skyCanvasCache.keys().next().value);
-      _skyCanvasCache.set(text, data);
-    }
-    const points = [];
-
-    for (let y = 0; y < 256; y += 1.5) {
-      for (let x = 0; x < 1024; x += 1.5) {
-        const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
-        if (data[i] > 128) {
-          points.push({
-            tx: (x - 512) * 0.06,
-            ty: -(y - 128) * 0.06,
-            sx: (Math.random() - 0.5) * 25,
-            sy: (Math.random() - 0.5) * 25,
-            sz: (Math.random() - 0.5) * 25,
-          });
+      const data = ctx.getImageData(0, 0, 1024, 256).data;
+      cachedPts = [];
+      for (let y = 0; y < 256; y += 1.5) {
+        for (let x = 0; x < 1024; x += 1.5) {
+          const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
+          if (data[i] > 128) cachedPts.push({ tx: (x - 512) * 0.06, ty: -(y - 128) * 0.06 });
         }
       }
+      if (_skyPointsCache.size >= 20) _skyPointsCache.delete(_skyPointsCache.keys().next().value);
+      _skyPointsCache.set(text, cachedPts);
     }
+
+    // Assign random scatter origins per-instance (not cached — vary each appearance)
+    const points = cachedPts.map(p => ({
+      tx: p.tx, ty: p.ty,
+      sx: (Math.random() - 0.5) * 25,
+      sy: (Math.random() - 0.5) * 25,
+      sz: (Math.random() - 0.5) * 25,
+    }));
 
     if (points.length === 0) return;
 
     const mat = new THREE.MeshBasicMaterial({
-      color:       0xffffff,
+      color:       this.colorHex,
       transparent: true,
       opacity:     0.0,
     });
@@ -341,6 +353,11 @@ export class LyricManager {
 
   setChorusMode(isChorus) {
     this.isChorus = isChorus;
+  }
+
+  setActiveColor(hexColor) {
+    this.colorHex = hexColor;
+    // Sky lyric formations stay white regardless of note color
   }
 
   addPhrase(text) {

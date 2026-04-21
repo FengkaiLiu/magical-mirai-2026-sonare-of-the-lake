@@ -259,3 +259,33 @@ body {
 }
 
 #play-btn { display: none; }
+
+/* Song circle "Enter to start" hint */
+#song-enter-hint {
+  position: fixed;
+  color: rgba(200, 240, 255, 0.92);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(136, 232, 255, 0.7), 0 1px 3px rgba(0,0,0,0.6);
+  z-index: 10;
+  animation: enterHintPulse 2s ease-in-out infinite;
+}
+#song-enter-hint kbd {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid rgba(136, 232, 255, 0.55);
+  border-bottom-width: 3px;
+  border-radius: 5px;
+  background: rgba(0, 20, 40, 0.55);
+  color: #aaeeff;
+  font-size: 0.88rem;
+  font-family: inherit;
+  box-shadow: 0 0 8px rgba(136, 232, 255, 0.3);
+}
+@keyframes enterHintPulse {
+  0%, 100% { opacity: 0.8; }
+  50%       { opacity: 1.0; }
+}

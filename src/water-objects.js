@@ -1,15 +1,10 @@
 /**
- * WaterObjects — Mini-game layer of floating planks and glowing notes.
+ * WaterObjects — Floating planks and glowing notes for the play phase.
  *
- * Planks: physics bodies that drift on water surface.
- *         Colliding with boat → shatter (fragment explosion + splash).
- *
- * Notes:  kinematic glowing orbs that stay at water surface.
- *         Colliding with boat → water ripple + fish color shift + spark burst.
- *
- * Spawning:
- *   - Planks: auto-spawn every PLANK_INTERVAL seconds ahead of the boat.
- *   - Notes:  spawned externally via spawnNote(pos, color) when a lyric phrase starts.
+ * Planks: physics bodies that drift on the water surface.
+ *         Boat collision → shatter into fragment pieces.
+ * Notes:  kinematic glowing orbs at water surface.
+ *         Boat collision → fish color shift + spark burst.
  */
 
 import * as THREE from "three";
@@ -18,51 +13,50 @@ import { waveHeight } from "./boat.js";
 
 // ─── Config ─────────────────────────────────────────────
 
-const PLANK_INTERVAL   = 9.0;     // seconds between auto-spawns
-const PLANK_SPAWN_DIST = 18;      // units ahead of boat
-const PLANK_SCATTER    = 6;       // lateral scatter
+const PLANK_INTERVAL   = 9.0;
+const PLANK_SPAWN_DIST = 18;
+const PLANK_SCATTER    = 6;
 const MAX_PLANKS       = 6;
 const MAX_NOTES        = 3;
-const NOTE_INTERVAL    = 12.0;    // seconds between auto-spawned notes
-const NOTE_SPAWN_RANGE = 28;      // random radius around boat for note spawns
+const NOTE_INTERVAL    = 12.0;
+const NOTE_SPAWN_RANGE = 28;
 
-// Random colors for notes
 const NOTE_COLORS = [
   0xff6688, 0xff99cc, 0xffcc44, 0x44ffcc,
   0x88aaff, 0xff8844, 0xaaffee, 0xff44aa,
 ];
 
-// ─── Helpers ─────────────────────────────────────────────
-
 function randRange(a, b) { return a + Math.random() * (b - a); }
+
+// Shared geometry + material for all planks — no per-plank GPU allocation or disposal stall.
+const _PLANK_GEO = new THREE.BoxGeometry(2.2, 0.18, 0.55);
+const _PLANK_MAT = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.9, metalness: 0 });
+
+// Shared unit-cube geometry for plank fragments — avoids per-shatter allocation.
+const _FRAG_GEO = new THREE.BoxGeometry(1, 1, 1);
+// MeshBasicMaterial for fragments: reuses the already-compiled basic shader (no GL compile stall on hit).
+const _FRAG_MAT = new THREE.MeshBasicMaterial({ color: 0x7a4a22, transparent: true });
 
 // ─── WaterObjects ────────────────────────────────────────
 
 export class WaterObjects {
-  constructor(engine, boat, fishLyricSystem, water) {
-    this.engine = engine;
-    this.boat = boat;
-    this.fish = fishLyricSystem;
-    this.water = water;
+  constructor(engine, boat, fishLyricSystem, lyricManager = null) {
+    this.engine  = engine;
+    this.boat    = boat;
+    this.fish    = fishLyricSystem;
+    this.lyrics  = lyricManager;
 
-    this._planks = [];
-    this._notes  = [];
+    this._planks    = [];
+    this._notes     = [];
     this._fragments = [];
-    this._splashes  = [];
     this._sparks    = [];
-    this._elapsed = 0;
-    this._plankTimer = PLANK_INTERVAL * 0.5; // first spawn after half interval
-    this._noteTimer  = NOTE_INTERVAL  * 0.3; // first note spawns early
-
-    // Bodies queued for removal AFTER the current physics step finishes
+    this._elapsed   = 0;
+    this._plankTimer = PLANK_INTERVAL * 0.5;
+    this._noteTimer  = NOTE_INTERVAL  * 0.3;
     this._pendingBodyRemoval = [];
 
-    // Score
-    this._score = 0;
+    this._score   = 0;
     this._scoreEl = this._initScoreEl();
-
-    // Detect collisions via cannon-es body events (added per-body on spawn)
-    // Boat body reference for collision checks
     this._boatBody = boat.body;
 
     engine.addUpdatable(this);
@@ -88,143 +82,90 @@ export class WaterObjects {
     this._scoreEl.textContent = `🪵 ×${this._score}`;
     this._scoreEl.style.opacity = "1";
     clearTimeout(this._scoreHideTimer);
-    this._scoreHideTimer = setTimeout(() => {
-      this._scoreEl.style.opacity = "0";
-    }, 2500);
-  }
-
-  // ─── Public API ────────────────────────────────────────
-
-  _spawnNoteRandom() {
-    if (this._notes.length >= MAX_NOTES) return;
-
-    const boatPos = this.boat.getPosition();
-    const angle = Math.random() * Math.PI * 2;
-    const dist  = 8 + Math.random() * NOTE_SPAWN_RANGE;
-    const px = Math.max(-38, Math.min(38, boatPos.x + Math.cos(angle) * dist));
-    const pz = Math.max(-38, Math.min(38, boatPos.z + Math.sin(angle) * dist));
-    const color = NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)];
-
-    const note = this._createNote(new THREE.Vector3(px, 0, pz), color);
-    this._notes.push(note);
+    this._scoreHideTimer = setTimeout(() => { this._scoreEl.style.opacity = "0"; }, 2500);
   }
 
   // ─── Spawn helpers ─────────────────────────────────────
 
   _spawnPlankAheadOfBoat() {
     if (this._planks.length >= MAX_PLANKS) return;
-
-    const boatPos  = this.boat.getPosition();
-    // Spawn in a random direction around the boat (not just "forward")
+    const bp = this.boat.getPosition();
     const angle = Math.random() * Math.PI * 2;
     const dist  = PLANK_SPAWN_DIST + randRange(-3, 3);
-    const px = boatPos.x + Math.sin(angle) * dist + randRange(-PLANK_SCATTER, PLANK_SCATTER);
-    const pz = boatPos.z + Math.cos(angle) * dist + randRange(-PLANK_SCATTER, PLANK_SCATTER);
+    const px = bp.x + Math.sin(angle) * dist + randRange(-PLANK_SCATTER, PLANK_SCATTER);
+    const pz = bp.z + Math.cos(angle) * dist + randRange(-PLANK_SCATTER, PLANK_SCATTER);
+    this._planks.push(this._createPlank(px, pz));
+  }
 
-    const plank = this._createPlank(px, pz);
-    this._planks.push(plank);
+  _spawnNoteRandom() {
+    if (this._notes.length >= MAX_NOTES) return;
+    const bp = this.boat.getPosition();
+    const angle = Math.random() * Math.PI * 2;
+    const dist  = 8 + Math.random() * NOTE_SPAWN_RANGE;
+    const px = Math.max(-38, Math.min(38, bp.x + Math.cos(angle) * dist));
+    const pz = Math.max(-38, Math.min(38, bp.z + Math.sin(angle) * dist));
+    const color = NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)];
+    this._notes.push(this._createNote(new THREE.Vector3(px, 0, pz), color));
   }
 
   _createPlank(px, pz) {
-    const wy = waveHeight(px, pz, this._elapsed) + 0.2;
-
-    // Visual
-    const geo = new THREE.BoxGeometry(2.2, 0.18, 0.55);
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x8b5a2b,
-      roughness: 0.9,
-      metalness: 0.0,
-    });
-    const mesh = new THREE.Mesh(geo, mat);
+    const wy  = waveHeight(px, pz, this._elapsed) + 0.2;
+    const mesh = new THREE.Mesh(_PLANK_GEO, _PLANK_MAT);
     mesh.position.set(px, wy, pz);
     mesh.rotation.y = Math.random() * Math.PI;
     mesh.castShadow = true;
     this.engine.scene.add(mesh);
 
-    // Physics
     const body = new CANNON.Body({
-      mass: 1,
+      mass: 0.08,
       shape: new CANNON.Box(new CANNON.Vec3(1.1, 0.09, 0.275)),
       material: this.engine.materials.lyric,
-      linearDamping: 0.6,
-      angularDamping: 0.9,
+      linearDamping: 0.82,
+      angularDamping: 0.95,
     });
     body.position.set(px, wy, pz);
+    body.sleepSpeedLimit = 0.4;
+    body.sleepTimeLimit  = 0.3;
     this.engine.world.addBody(body);
 
     const plank = { mesh, body, alive: true, age: 0 };
-
-    // Collision: listen on the body
     body.addEventListener("collide", (event) => {
       if (!plank.alive) return;
-      const other = event.body;
-      if (other === this._boatBody) {
-        // Mark immediately so we don't re-trigger; actual removal deferred to next update()
-        plank.alive = false;
-        plank._pendingShatter = true;
-      }
+      if (event.body === this._boatBody) { plank.alive = false; plank._pendingShatter = true; }
     });
-
     return plank;
   }
 
   _createNote(pos, color) {
-    // Visual: icosahedron with additive glow
     const geo = new THREE.IcosahedronGeometry(0.45, 1);
-    const mat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.85,
-    });
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
     const mesh = new THREE.Mesh(geo, mat);
 
-    // Glow halo: slightly larger sphere
-    const haloGeo = new THREE.IcosahedronGeometry(0.7, 1);
     const haloMat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.25,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.BackSide,
+      color, transparent: true, opacity: 0.25,
+      blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
     });
-    const halo = new THREE.Mesh(haloGeo, haloMat);
-    mesh.add(halo);
+    mesh.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 1), haloMat));
 
     const wy = waveHeight(pos.x, pos.z, this._elapsed) + 0.5;
     mesh.position.set(pos.x, wy, pos.z);
     this.engine.scene.add(mesh);
 
-    // Physics: kinematic trigger — moves with waves, no bounce, fires collide events
     const body = new CANNON.Body({
       mass: 0,
-      shape: new CANNON.Sphere(1.2),  // larger sphere = easier to hit
+      shape: new CANNON.Sphere(1.2),
       material: this.engine.materials.lyric,
     });
-    body.type = CANNON.Body.KINEMATIC;   // broadphase updates correctly each frame
-    body.collisionResponse = false;       // no physical impulse on boat
+    body.type = CANNON.Body.KINEMATIC;
+    body.collisionResponse = false;
     body.position.set(pos.x, wy, pos.z);
     this.engine.world.addBody(body);
 
-    const note = {
-      mesh, body,
-      color,
-      alive: true,
-      age: 0,
-      fadeOut: false,
-      opacity: 0.85,
-    };
-
+    const note = { mesh, body, color, alive: true, age: 0, fadeOut: false, opacity: 0.85 };
     body.addEventListener("collide", (event) => {
       if (!note.alive || note.fadeOut) return;
-      const other = event.body;
-      if (other === this._boatBody) {
-        // Mark immediately; deferred body removal + effects in next update()
-        note.fadeOut = true;
-        note._pendingHit = true;
-      }
+      if (event.body === this._boatBody) { note.fadeOut = true; note._pendingHit = true; }
     });
-
     return note;
   }
 
@@ -232,109 +173,55 @@ export class WaterObjects {
 
   _shatterPlank(plank) {
     const pos = plank.mesh.position.clone();
-
-    // Defer body removal — safe even if called from collision handler
     this._pendingBodyRemoval.push(plank.body);
     this.engine.scene.remove(plank.mesh);
-    plank.mesh.geometry.dispose();
-    plank.mesh.material.dispose();
+    // _PLANK_GEO and _PLANK_MAT are module-level shared — do NOT dispose them.
 
-    // Spawn fragment pieces
-    const fragCount = 10;
-    const frags = [];
-    for (let i = 0; i < fragCount; i++) {
+    for (let i = 0; i < 5; i++) {
       const size = randRange(0.12, 0.35);
-      const fGeo = new THREE.BoxGeometry(size, size * 0.3, size * 0.5);
-      const fMat = new THREE.MeshStandardMaterial({ color: 0x7a4a22, roughness: 1 });
-      const fMesh = new THREE.Mesh(fGeo, fMat);
+      const fMesh = new THREE.Mesh(_FRAG_GEO, _FRAG_MAT.clone()); // clone for per-fragment opacity
+      fMesh.scale.set(size, size * 0.3, size * 0.5);
       fMesh.position.copy(pos).add(new THREE.Vector3(
         randRange(-0.5, 0.5), randRange(0, 0.3), randRange(-0.5, 0.5)));
-      fMesh.rotation.set(
-        Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+      fMesh.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
       this.engine.scene.add(fMesh);
-      frags.push({
+      this._fragments.push({
         mesh: fMesh,
-        vel: new THREE.Vector3(
-          randRange(-3, 3), randRange(2, 6), randRange(-3, 3)),
-        rot: new THREE.Vector3(
-          randRange(-4, 4), randRange(-4, 4), randRange(-4, 4)),
+        vel:  new THREE.Vector3(randRange(-3, 3), randRange(2, 6), randRange(-3, 3)),
+        rot:  new THREE.Vector3(randRange(-4, 4), randRange(-4, 4), randRange(-4, 4)),
         life: 1.0,
       });
     }
 
-    // Splash particles
-    const splashGeo = new THREE.BufferGeometry();
-    const splashCount = 20;
-    const splashPos = new Float32Array(splashCount * 3);
-    for (let i = 0; i < splashCount; i++) {
-      splashPos[i * 3]     = pos.x + randRange(-0.3, 0.3);
-      splashPos[i * 3 + 1] = pos.y;
-      splashPos[i * 3 + 2] = pos.z + randRange(-0.3, 0.3);
-    }
-    splashGeo.setAttribute("position", new THREE.BufferAttribute(splashPos, 3));
-    const splashMat = new THREE.PointsMaterial({
-      color: 0xaaddff,
-      size: 0.2,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const splash = new THREE.Points(splashGeo, splashMat);
-    this.engine.scene.add(splash);
-    const splashVels = Array.from({ length: splashCount }, () => new THREE.Vector3(
-      randRange(-2, 2), randRange(1.5, 5), randRange(-2, 2)));
-
-    this._fragments.push(...frags);
-    this._splashes.push({ mesh: splash, vels: splashVels, life: 1.0 });
-
-    // Score
     this._score++;
     this._showScore();
   }
 
   _hitNote(note) {
     note.fadeOut = true;
+    if (this.fish)   this.fish.triggerColorShift(note.color, 10.0);
+    if (this.lyrics) this.lyrics.setActiveColor(note.color);
 
     const pos = note.mesh.position;
-
-    // Ripple on water
-    this.water.triggerRipple(pos);
-
-    // Fish color shift
-    if (this.fish) {
-      this.fish.triggerColorShift(note.color, 10.0);
-    }
-
-    // Spark burst (XZ plane)
     const sparkCount = 24;
-    const sparkGeo = new THREE.BufferGeometry();
     const sparkPos = new Float32Array(sparkCount * 3);
     for (let i = 0; i < sparkCount; i++) {
-      sparkPos[i * 3]     = pos.x;
-      sparkPos[i * 3 + 1] = pos.y;
-      sparkPos[i * 3 + 2] = pos.z;
+      sparkPos[i * 3] = pos.x; sparkPos[i * 3 + 1] = pos.y; sparkPos[i * 3 + 2] = pos.z;
     }
+    const sparkGeo = new THREE.BufferGeometry();
     sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
     const sparkMat = new THREE.PointsMaterial({
-      color: note.color,
-      size: 0.25,
-      transparent: true,
-      opacity: 1.0,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      color: note.color, size: 0.25, transparent: true, opacity: 1.0,
+      depthWrite: false, blending: THREE.AdditiveBlending,
     });
     const sparks = new THREE.Points(sparkGeo, sparkMat);
     this.engine.scene.add(sparks);
-
     const sparkVels = Array.from({ length: sparkCount }, (_, i) => {
       const a = (i / sparkCount) * Math.PI * 2;
       return new THREE.Vector3(Math.cos(a) * randRange(2, 5), randRange(0.5, 2), Math.sin(a) * randRange(2, 5));
     });
-
     this._sparks.push({ mesh: sparks, vels: sparkVels, life: 1.0 });
 
-    // Defer body removal
     this._pendingBodyRemoval.push(note.body);
   }
 
@@ -343,108 +230,67 @@ export class WaterObjects {
   update(dt, elapsed) {
     this._elapsed = elapsed;
 
-    // ── Flush deferred body removals (safe now, outside world.step) ──
     for (const body of this._pendingBodyRemoval) {
-      // Guard: only remove if still in the world (avoids double-removal errors)
-      if (this.engine.world.bodies.includes(body)) {
-        this.engine.world.removeBody(body);
-      }
+      if (this.engine.world.bodies.includes(body)) this.engine.world.removeBody(body);
     }
     this._pendingBodyRemoval.length = 0;
 
-    // ── Process deferred collision outcomes ──
     for (const p of this._planks) {
-      if (p._pendingShatter) {
-        p._pendingShatter = false;
-        this._shatterPlank(p);
-      }
+      if (p._pendingShatter) { p._pendingShatter = false; this._shatterPlank(p); }
     }
     for (const n of this._notes) {
-      if (n._pendingHit) {
-        n._pendingHit = false;
-        this._hitNote(n);
-      }
+      if (n._pendingHit) { n._pendingHit = false; this._hitNote(n); }
     }
 
-    // Auto-spawn planks
     this._plankTimer -= dt;
-    if (this._plankTimer <= 0) {
-      this._plankTimer = PLANK_INTERVAL;
-      this._spawnPlankAheadOfBoat();
-    }
-
-    // Auto-spawn notes (max 3, random positions)
+    if (this._plankTimer <= 0) { this._plankTimer = PLANK_INTERVAL; this._spawnPlankAheadOfBoat(); }
     this._noteTimer -= dt;
-    if (this._noteTimer <= 0) {
-      this._noteTimer = NOTE_INTERVAL;
-      this._spawnNoteRandom();
-    }
+    if (this._noteTimer <= 0) { this._noteTimer = NOTE_INTERVAL; this._spawnNoteRandom(); }
 
-    // Update planks: ride wave surface
     for (let i = this._planks.length - 1; i >= 0; i--) {
       const p = this._planks[i];
-      if (!p.alive) {
-        this._planks.splice(i, 1);
-        continue;
-      }
+      if (!p.alive) { this._planks.splice(i, 1); continue; }
       p.age += dt;
       const bx = p.body.position.x, bz = p.body.position.z;
-      const wy = waveHeight(bx, bz, elapsed) + 0.05;
-      // Apply soft spring toward wave surface on Y
+      const wy  = waveHeight(bx, bz, elapsed) + 0.05;
       const yErr = wy - p.body.position.y;
-      p.body.applyForce(new CANNON.Vec3(0, yErr * 50 - p.body.velocity.y * 6, 0));
-
-      // Sync mesh
+      // Cap force: dt spikes (from lyric text-sampling hitches) cause CANNON to run
+      // multiple sub-steps but applyForce is only consumed in the first sub-step,
+      // so planks free-fall in sub-steps 2+ and then over-correct. Capping the force
+      // bounds the correction impulse and prevents violent oscillation.
+      const forceY = Math.max(-3, Math.min(3, yErr * 35 - p.body.velocity.y * 10));
+      p.body.applyForce(new CANNON.Vec3(0, forceY, 0));
       p.mesh.position.set(p.body.position.x, p.body.position.y, p.body.position.z);
       p.mesh.quaternion.set(
-        p.body.quaternion.x, p.body.quaternion.y,
-        p.body.quaternion.z, p.body.quaternion.w);
-
-      // Cull planks that drifted too far
-      const boatPos = this.boat.getPosition();
-      const dx = p.mesh.position.x - boatPos.x;
-      const dz = p.mesh.position.z - boatPos.z;
-      if (dx * dx + dz * dz > 80 * 80) {
-        this._destroyPlank(p);
-        this._planks.splice(i, 1);
-      }
+        p.body.quaternion.x, p.body.quaternion.y, p.body.quaternion.z, p.body.quaternion.w);
+      const bp = this.boat.getPosition();
+      const dx = p.mesh.position.x - bp.x, dz = p.mesh.position.z - bp.z;
+      if (dx * dx + dz * dz > 80 * 80) { this._destroyPlank(p); this._planks.splice(i, 1); }
     }
 
-    // Update notes: float on wave + spin + fade
     for (let i = this._notes.length - 1; i >= 0; i--) {
       const n = this._notes[i];
       n.age += dt;
       const bx = n.mesh.position.x, bz = n.mesh.position.z;
-      const wy = waveHeight(bx, bz, elapsed) + 0.5;
+      const wy  = waveHeight(bx, bz, elapsed) + 0.5;
       n.mesh.position.y = wy;
-      if (!n.fadeOut) n.body.position.set(bx, wy, bz);  // skip after body removed
+      if (!n.fadeOut) n.body.position.set(bx, wy, bz);
       n.mesh.rotation.y += dt * 1.2;
-
       if (n.fadeOut) {
         n.opacity = Math.max(0, n.opacity - dt * 3);
         n.mesh.material.opacity = n.opacity;
-        if (n.opacity <= 0) {
-          this._destroyNote(n);
-          this._notes.splice(i, 1);
-        }
+        if (n.opacity <= 0) { this._destroyNote(n); this._notes.splice(i, 1); }
       }
-
-      // Auto-expire after 30s
-      if (n.age > 30 && !n.fadeOut) {
-        n.fadeOut = true;
-      }
+      if (n.age > 30 && !n.fadeOut) n.fadeOut = true;
     }
 
-    // Update fragments (plank shards)
     for (let i = this._fragments.length - 1; i >= 0; i--) {
       const f = this._fragments[i];
       f.life -= dt * 0.65;
       if (f.life <= 0) {
         this.engine.scene.remove(f.mesh);
-        f.mesh.geometry.dispose();
-        f.mesh.material.dispose();
-        this._fragments.splice(i, 1);
-        continue;
+        f.mesh.material.dispose(); // shared _FRAG_GEO — do NOT dispose geometry
+        this._fragments.splice(i, 1); continue;
       }
       f.vel.y -= 9.8 * dt;
       f.mesh.position.addScaledVector(f.vel, dt);
@@ -455,38 +301,13 @@ export class WaterObjects {
       f.mesh.material.transparent = true;
     }
 
-    // Update splashes
-    for (let i = this._splashes.length - 1; i >= 0; i--) {
-      const s = this._splashes[i];
-      s.life -= dt * 1.2;
-      if (s.life <= 0) {
-        this.engine.scene.remove(s.mesh);
-        s.mesh.geometry.dispose();
-        s.mesh.material.dispose();
-        this._splashes.splice(i, 1);
-        continue;
-      }
-      const positions = s.mesh.geometry.attributes.position.array;
-      for (let j = 0; j < s.vels.length; j++) {
-        s.vels[j].y -= 9.8 * dt;
-        positions[j * 3]     += s.vels[j].x * dt;
-        positions[j * 3 + 1] += s.vels[j].y * dt;
-        positions[j * 3 + 2] += s.vels[j].z * dt;
-      }
-      s.mesh.geometry.attributes.position.needsUpdate = true;
-      s.mesh.material.opacity = s.life * 0.9;
-    }
-
-    // Update sparks
     for (let i = this._sparks.length - 1; i >= 0; i--) {
       const s = this._sparks[i];
       s.life -= dt * 1.1;
       if (s.life <= 0) {
         this.engine.scene.remove(s.mesh);
-        s.mesh.geometry.dispose();
-        s.mesh.material.dispose();
-        this._sparks.splice(i, 1);
-        continue;
+        s.mesh.geometry.dispose(); s.mesh.material.dispose();
+        this._sparks.splice(i, 1); continue;
       }
       const positions = s.mesh.geometry.attributes.position.array;
       for (let j = 0; j < s.vels.length; j++) {
@@ -500,17 +321,15 @@ export class WaterObjects {
     }
   }
 
-  // ─── Cleanup helpers ───────────────────────────────────
+  // ─── Cleanup ───────────────────────────────────────────
 
   _destroyPlank(p) {
     this._pendingBodyRemoval.push(p.body);
     this.engine.scene.remove(p.mesh);
-    p.mesh.geometry.dispose();
-    p.mesh.material.dispose();
+    // _PLANK_GEO and _PLANK_MAT are module-level shared — do NOT dispose.
   }
 
   _destroyNote(n) {
-    // Always queue body removal; world.removeBody is idempotent for missing bodies
     this._pendingBodyRemoval.push(n.body);
     this.engine.scene.remove(n.mesh);
     n.mesh.geometry.dispose();
@@ -519,27 +338,23 @@ export class WaterObjects {
 
   dispose() {
     this.engine.removeUpdatable(this);
-
     for (const p of this._planks) this._destroyPlank(p);
     for (const n of this._notes)  this._destroyNote(n);
-
-    // Flush any pending body removals immediately on dispose
     for (const body of this._pendingBodyRemoval) {
-      this.engine.world.removeBody(body);
+      if (this.engine.world.bodies.includes(body)) this.engine.world.removeBody(body);
     }
     this._pendingBodyRemoval.length = 0;
-
-    for (const arr of [this._fragments, this._splashes, this._sparks]) {
-      if (!arr) continue;
-      for (const item of arr) {
-        this.engine.scene.remove(item.mesh);
-        item.mesh.geometry.dispose();
-        item.mesh.material.dispose();
-      }
+    for (const f of this._fragments) {
+      this.engine.scene.remove(f.mesh);
+      f.mesh.material.dispose(); // shared _FRAG_GEO — do NOT dispose geometry
     }
-
+    for (const s of this._sparks) {
+      this.engine.scene.remove(s.mesh);
+      s.mesh.geometry.dispose();
+      s.mesh.material.dispose();
+    }
     if (this._scoreEl) this._scoreEl.remove();
     this._planks = [];
-    this._notes = [];
+    this._notes  = [];
   }
 }

@@ -1,23 +1,15 @@
 /**
- * main.js — State machine: STATE_SELECT → STATE_PLAY
- *
- * Boots SongSelectScene. When player sails into a song card,
- * fades to black, tears down select scene, boots LakeScene.
+ * main.js — Boots GameScene. One scene, one session, no swap.
  */
 
 import * as THREE from "three";
 import { Engine } from "./engine.js";
-import { SongSelectScene } from "./song-select.js";
-import { LakeScene } from "./lake-scene.js";
+import { GameScene } from "./game-scene.js";
 
 const engine = new Engine(document.getElementById("app"));
-
-let currentScene = null;
-const transitionOverlay = document.getElementById("transition-overlay");
+const scene  = new GameScene(engine);
 
 // ── Loading progress UI ───────────────────────────────────────────────────────
-// Hook DefaultLoadingManager before any scene creates loaders so every
-// GLTFLoader (boat, terrain) is tracked automatically.
 const progressFill = document.getElementById("intro-progress-fill");
 const progressPct  = document.getElementById("intro-progress-pct");
 const progressWrap = document.getElementById("intro-progress-wrap");
@@ -30,86 +22,53 @@ THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => {
 };
 
 THREE.DefaultLoadingManager.onLoad = () => {
-  // Fill bar to 100 %, then hold 2 s to let the circle reveal play before
-  // swapping to the Start button
   if (progressFill) progressFill.style.width = "100%";
   if (progressPct)  progressPct.textContent  = "100%";
 
-  // Wait 2 s, then fade out the overlay and show Start button
+  // Pre-compile all shaders during the 2 s hold so the first visible render is stutter-free.
+  Promise.resolve().then(() => {
+    if (engine.renderer.compileAsync) {
+      engine.renderer.compileAsync(engine.scene, engine.camera);
+    } else {
+      engine.renderer.compile(engine.scene, engine.camera);
+    }
+  });
+
   setTimeout(() => {
     fadeOutReveal();
     setTimeout(() => {
-      if (progressWrap) progressWrap.classList.add("hidden");
-      if (startBtn) {
-        startBtn.disabled = false;
-        startBtn.classList.add("ready");
-      }
+      progressWrap?.classList.add("hidden");
+      if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
     }, 0);
   }, 2000);
 };
 
-// Fade out the overlay (shared by onLoad and the 5 s fallback)
 function fadeOutReveal() {
   const el = document.getElementById("circle-reveal");
   if (!el || el.classList.contains("gone")) return;
   el.style.transition = "opacity 1.5s ease";
-  el.style.opacity = "0";
+  el.style.opacity    = "0";
   setTimeout(() => el.classList.add("gone"), 1500);
 }
 
-// If no assets are loaded at all (all cached / no GLTF in scene), show Start
-// immediately after a short grace period so the screen never gets stuck.
+// Fallback: if nothing triggers onLoad within 5 s (all assets cached), show Start.
 setTimeout(() => {
   if (startBtn && !startBtn.classList.contains("ready")) {
     if (progressFill) progressFill.style.width = "100%";
     if (progressPct)  progressPct.textContent  = "100%";
     fadeOutReveal();
     setTimeout(() => {
-      if (progressWrap) progressWrap.classList.add("hidden");
+      progressWrap?.classList.add("hidden");
       if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
     }, 1500);
   }
 }, 5000);
 
-// Start button triggers the 3-D intro sequence (overhead → dive)
-if (startBtn) {
-  startBtn.addEventListener("click", () => {
-    startBtn.disabled = true;
-    if (currentScene && currentScene.beginIntroSequence) {
-      currentScene.beginIntroSequence();
-    }
-  });
-}
-
-function startSelect() {
-  currentScene = new SongSelectScene(engine, onSongSelected);
-}
-
-function onSongSelected(songIndex) {
-  // Fade to black
-  transitionOverlay.classList.add("visible");
-
-  setTimeout(() => {
-    // Tear down select scene
-    currentScene.dispose();
-    currentScene = null;
-
-    // Boot lake scene
-    startPlay(songIndex);
-
-    // Fade back in
-    transitionOverlay.classList.remove("visible");
-  }, 500);
-}
-
-function startPlay(songIndex) {
-  currentScene = new LakeScene(engine, songIndex);
-}
-
-// Registered once — delegates to currentScene via closure
-document.getElementById("pause-btn")?.addEventListener("click", () => {
-  if (currentScene) currentScene.togglePause();
+startBtn?.addEventListener("click", () => {
+  startBtn.disabled = true;
+  scene.beginIntroSequence();
 });
 
-startSelect();
+document.getElementById("pause-btn")?.addEventListener("click", () => scene.togglePause());
+
 engine.start();

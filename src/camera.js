@@ -36,6 +36,7 @@ export class CameraController {
     this.revealLock          = false; // when true, camera holds position while boat enters
     this._revealTransition   = 0;    // counts up after revealLock releases to ease smoothing in
     this._revealTransDur     = 1.5;  // seconds to ramp smoothing from dive-speed to normal
+    this.gsapOverride        = false; // when true, GSAP owns the camera — skip all controller updates
 
     // Start at the appropriate position — overhead for intro, boat-follow for direct play
     if (skipIntro) {
@@ -85,6 +86,8 @@ export class CameraController {
   }
 
   update(dt, elapsed) {
+    if (this.gsapOverride) return; // GSAP owns camera position during song-select transition
+
     // ── State 1: Intro — camera locked overhead ────────────────────
     if (this.isIntro) {
       const alpha = 1 - Math.pow(1 - 0.06, dt * 60);

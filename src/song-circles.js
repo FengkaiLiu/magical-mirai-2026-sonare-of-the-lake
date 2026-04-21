@@ -1,0 +1,727 @@
+/**
+ * song-circles.js — Particle-based song selection system.
+ */
+
+import * as THREE from "three";
+import { waveHeight } from "./boat.js";
+import { SONGS } from "./songs.js";
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const COUNT         = 1200;
+const CIRCLE_R      = 2.2;
+const ORBIT_SPEED   = 0.38;
+const TEXT_W        = 26.0;
+const TEXT_H        = 5.5;
+const TEXT_FORWARD  = -4.0;
+const GATHER_SPEED  = 5.0;
+const FORM_SPEED    = 9.0;
+const ACTIVATE_DIST = CIRCLE_R;
+const HINT_OFFSET   = 3.5;
+
+// ── Particle shader ───────────────────────────────────────────────────────────
+
+const _vert = /* glsl */ `
+  attribute float aSize;
+  attribute float aAlpha;
+  uniform  float uTime;
+  uniform  float uPulse;
+  varying  float vAlpha;
+  void main() {
+    vAlpha = aAlpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float localPulse = sin(uTime * 2.1 + position.x * 2.8 + position.z * 1.9);
+    float pulse = 1.0 + 0.13 * localPulse + uPulse * 0.28 * (0.5 + 0.5 * localPulse);
+    gl_PointSize = aSize * pulse * (300.0 / -mv.z);
+    gl_Position  = projectionMatrix * mv;
+  }
+`;
+
+const _frag = /* glsl */ `
+  uniform vec3  uColor;
+  uniform float uAlphaMul;
+  uniform float uPulse;
+  varying float vAlpha;
+  void main() {
+    float d    = length(gl_PointCoord - vec2(0.5));
+    if (d > 0.5) discard;
+    float core = exp(-d * d * 28.0);
+    float halo = exp(-d * d * 7.0) * 0.55;
+    float glow = (core + halo) * 5.5;
+    vec3  hotCol = mix(uColor, vec3(1.3, 1.3, 1.3), uPulse * 0.42);
+    vec3  col  = hotCol * glow + vec3(1.0) * core * (0.4 + uPulse * 0.32);
+    gl_FragColor = vec4(col, vAlpha * glow * uAlphaMul);
+  }
+`;
+
+// ── Glow ring shader ──────────────────────────────────────────────────────────
+// RingGeometry UV: u = angle 0..1, v = 0 (inner) .. 1 (outer).
+// After rotateX(-PI/2) the geometry lies flat in XZ.
+// Vertex shader adds traveling sine waves for 律動 (rhythmic ripple).
+
+const _ringVert = /* glsl */ `
+  varying vec2  vUv;
+  uniform float uTime;
+  uniform float uPulse;
+  void main() {
+    vUv = uv;
+    vec3 pos = position;
+    // Traveling wave rippling around the ring circumference
+    float angle = atan(pos.z, pos.x);
+    float wave  = sin(angle * 4.0 + uTime * 2.6) * 0.07
+                + sin(angle * 2.0 - uTime * 1.8) * 0.045
+                + sin(angle * 7.0 + uTime * 4.2) * 0.018;
+    pos.y += wave * (1.0 + uPulse * 0.9);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  }
+`;
+
+const _ringFrag = /* glsl */ `
+  varying vec2  vUv;
+  uniform vec3  uColor;
+  uniform float uOpacity;
+  uniform float uPulse;
+  void main() {
+    // vUv.y: 0 = inner rim, 1 = outer rim; 0.5 = centerline of the band
+    float dist  = abs(vUv.y - 0.5) * 2.0;        // 0 at center, 1 at edges
+    float core  = exp(-dist * dist * 14.0);        // tight bright core line
+    float halo  = exp(-dist * dist * 3.0) * 0.55; // wide soft glow
+    float glow  = core + halo;
+    float bright = 1.7 + uPulse * 1.5;
+    vec3  col   = uColor * bright * glow
+                + vec3(1.0) * core * (0.55 + uPulse * 0.55);
+    gl_FragColor = vec4(col, glow * uOpacity);
+  }
+`;
+
+// ── Text sampling ─────────────────────────────────────────────────────────────
+
+function sampleTextPoints(text, count) {
+  const cw = 2048, ch = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, cw, ch);
+
+  let sz = 72;
+  const fnt = s => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  ctx.font = fnt(sz);
+  while (ctx.measureText(text).width > cw * 0.88 && sz > 14) { sz -= 2; ctx.font = fnt(sz); }
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, cw / 2, ch / 2);
+
+  const px = ctx.getImageData(0, 0, cw, ch).data;
+  const white = [];
+  for (let y = 0; y < ch; y++)
+    for (let x = 0; x < cw; x++)
+      if (px[(y * cw + x) * 4] > 128) white.push({ x, y });
+
+  if (!white.length) return [];
+  const step = Math.max(1, white.length / count);
+  const pts  = [];
+  for (let i = 0; i < count && Math.floor(i * step) < white.length; i++) {
+    const p = white[Math.floor(i * step)];
+    pts.push({ lx: p.x / cw - 0.5, ly: 0.5 - p.y / ch });
+  }
+  return pts;
+}
+
+// ── SongCircle ────────────────────────────────────────────────────────────────
+
+class SongCircle {
+  constructor(engine, center, song, index) {
+    this.engine    = engine;
+    this.center    = center.clone();
+    this.songIndex = index;
+    this._disposed = false;
+
+    this._state     = "waiting";
+    this._stateTime = 0;
+    this._alphaMul  = 0;
+
+    const col = new THREE.Color(song.theme?.particle ?? 0x88e8ff);
+    this._col          = col;
+    this._songCol      = col.clone();
+    this._gatherStartCol = new THREE.Color(0x88e8ff);
+    this._white = new THREE.Color(1.3, 1.3, 1.3);
+    this._tmpCol1 = new THREE.Color();
+    this._ringFade = 0; // independent ring opacity tracker for titleFade dissolve
+
+    const n = COUNT;
+    this._n          = n;
+    this._posArr     = new Float32Array(n * 3);
+    this._velArr     = new Float32Array(n * 3);
+    this._sizeArr    = new Float32Array(n);
+    this._alphaArr   = new Float32Array(n);
+    this._orbitAng   = new Float32Array(n);
+    this._orbitR     = new Float32Array(n);
+    this._orbitDir   = new Float32Array(n);
+    this._orbitPhase = new Float32Array(n);
+    this._targets     = new Float32Array(n * 3);
+    this._hasTarget   = new Uint8Array(n);
+    this._gatherDelay = new Float32Array(n);
+
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 6 + Math.random() * 20;
+      this._posArr[i * 3]     = Math.cos(a) * r;
+      this._posArr[i * 3 + 1] = 0.15;
+      this._posArr[i * 3 + 2] = Math.sin(a) * r;
+      this._sizeArr[i]    = 0.12 + Math.random() * 0.09;
+      this._alphaArr[i]   = 0.75 + Math.random() * 0.25;
+      this._orbitAng[i]   = Math.random() * Math.PI * 2;
+      this._orbitR[i]     = CIRCLE_R * (0.28 + Math.random() * 0.72);
+      this._orbitDir[i]   = Math.random() < 0.5 ? 1 : -1;
+      this._orbitPhase[i] = Math.random() * Math.PI * 2;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(this._posArr, 3));
+    geo.setAttribute("aSize",    new THREE.BufferAttribute(this._sizeArr,  1));
+    geo.setAttribute("aAlpha",   new THREE.BufferAttribute(this._alphaArr, 1));
+
+    this._uniforms = {
+      uTime:     { value: 0 },
+      uColor:    { value: col.clone() },
+      uAlphaMul: { value: 0 },
+      uPulse:    { value: 0 },
+    };
+    this._pts = new THREE.Points(geo, new THREE.ShaderMaterial({
+      vertexShader:   _vert,
+      fragmentShader: _frag,
+      uniforms:       this._uniforms,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this._pts.frustumCulled = false;
+    this._pts.renderOrder   = 1;
+    engine.scene.add(this._pts);
+
+    this._ring1 = this._makeGlowRing(engine, CIRCLE_R, col, 0.28);
+
+    this._textPts = sampleTextPoints(song.title, n);
+  }
+
+  // Returns { mesh, uniforms, geo, mat } — a glowing ring lying flat in XZ.
+  _makeGlowRing(engine, r, col, halfBand = 0.25) {
+    const geo = new THREE.RingGeometry(r - halfBand, r + halfBand, 128, 1);
+    geo.rotateX(-Math.PI / 2);
+
+    const uniforms = {
+      uTime:    { value: 0 },
+      uColor:   { value: col.clone() },
+      uOpacity: { value: 0 },
+      uPulse:   { value: 0 },
+    };
+    const mat = new THREE.ShaderMaterial({
+      vertexShader:   _ringVert,
+      fragmentShader: _ringFrag,
+      uniforms,
+      transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(this.center.x, 0, this.center.z);
+    mesh.frustumCulled = false;
+    mesh.renderOrder   = 1;
+    engine.scene.add(mesh);
+    return { mesh, uniforms, geo, mat };
+  }
+
+  // ── Public API ────────────────────────────────────────
+
+  startGather() {
+    if (this._state !== "waiting") return;
+    this._state     = "gathering";
+    this._stateTime = 0;
+  }
+
+  activate() {
+    const s = this._state;
+    if (s === "active" || s === "activating" || s === "waiting" || s === "gathering") return;
+    this._state     = "activating";
+    this._stateTime = 0;
+    this._assignTextTargets();
+  }
+
+  deactivate() {
+    const s = this._state;
+    // Never interrupt terminal/fading states — they must run to completion
+    if (s === "idle" || s === "returning" || s === "waiting" || s === "gathering"
+        || s === "titleFade" || s === "scattered" || s === "selectedScatter") return;
+    this._hasTarget.fill(0);
+    this._state     = "returning";
+    this._stateTime = 0;
+  }
+
+  triggerScatter() {
+    const BLAST = 11;
+    const cx = this.center.x, cz = this.center.z;
+    for (let i = 0; i < this._n; i++) {
+      const i3 = i * 3;
+      const dx = this._posArr[i3] - cx, dz = this._posArr[i3 + 2] - cz;
+      const d  = Math.sqrt(dx * dx + dz * dz) || 0.1;
+      const sp = BLAST * (0.4 + Math.random() * 0.8);
+      this._velArr[i3]     = (dx / d) * sp;
+      this._velArr[i3 + 2] = (dz / d) * sp;
+    }
+    this._state     = "scattered";
+    this._stateTime = 0;
+  }
+
+  triggerSelectedScatter() {
+    const BLAST = 20;
+    const cx = this.center.x, cz = this.center.z;
+    for (let i = 0; i < this._n; i++) {
+      const i3 = i * 3;
+      const dx = this._posArr[i3] - cx, dz = this._posArr[i3 + 2] - cz;
+      const d  = Math.sqrt(dx * dx + dz * dz) || 0.5;
+      const sp = BLAST * (0.5 + Math.random() * 1.2);
+      this._velArr[i3]     = (dx / d) * sp + (Math.random() - 0.5) * 7;
+      this._velArr[i3 + 2] = (dz / d) * sp + (Math.random() - 0.5) * 7;
+    }
+    this._ring1.uniforms.uOpacity.value = 1.3;
+    this._state     = "selectedScatter";
+    this._stateTime = 0;
+  }
+
+  // Gentle dissolve with hot-white confirmation flash.
+  triggerTitleFade() {
+    const DRIFT = 1.4;
+    const cx = this.center.x, cz = this.center.z;
+    for (let i = 0; i < this._n; i++) {
+      const i3 = i * 3;
+      const dx = this._posArr[i3] - cx, dz = this._posArr[i3 + 2] - cz;
+      const d  = Math.sqrt(dx * dx + dz * dz) || 0.5;
+      const sp = DRIFT * (0.3 + Math.random() * 0.9);
+      this._velArr[i3]     = (dx / d) * sp + (Math.random() - 0.5) * 0.7;
+      this._velArr[i3 + 2] = (dz / d) * sp + (Math.random() - 0.5) * 0.7;
+    }
+    // Particles: over-bright flash then slow dissolve
+    this._alphaMul = 2.2;
+    this._uniforms.uAlphaMul.value = 2.2;
+    this._uniforms.uPulse.value    = 1.0;
+    // Ring: independent graceful fade over ~2s
+    this._ringFade = 1.0;
+    this._ring1.uniforms.uColor.value.copy(this._white);
+    this._ring1.uniforms.uOpacity.value = 1.8;
+    this._ring1.uniforms.uPulse.value   = 1.0;
+    this._state     = "titleFade";
+    this._stateTime = 0;
+  }
+
+  // ── Internal ──────────────────────────────────────────
+
+  _assignTextTargets() {
+    this._hasTarget.fill(0);
+    const pts = this._textPts;
+    if (!pts.length) return;
+
+    const cx = this.center.x, cz = this.center.z + TEXT_FORWARD;
+    const n = this._n, pos = this._posArr;
+    const used = new Uint8Array(n);
+
+    for (const p of pts) {
+      const tx = cx + p.lx * TEXT_W;
+      const tz = cz - p.ly * TEXT_H;
+      let best = -1, bestD2 = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (used[i]) continue;
+        const dx = pos[i * 3] - tx, dz = pos[i * 3 + 2] - tz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; best = i; }
+      }
+      if (best >= 0) {
+        used[best] = 1;
+        this._hasTarget[best]        = 1;
+        this._targets[best * 3]     = tx;
+        this._targets[best * 3 + 1] = 0;
+        this._targets[best * 3 + 2] = tz;
+      }
+    }
+  }
+
+  _setRingState(opacity, scale = 1.0, colorShift = 0) {
+    this._tmpCol1.copy(this._songCol).lerp(this._white, colorShift * 0.55);
+    this._ring1.uniforms.uColor.value.copy(this._tmpCol1);
+    this._ring1.uniforms.uOpacity.value = opacity;
+    this._ring1.uniforms.uPulse.value   = colorShift;
+    this._ring1.mesh.scale.set(scale, 1, scale);
+  }
+
+  // ── Update ────────────────────────────────────────────
+
+  update(dt, elapsed) {
+    if (this._disposed || this._state === "waiting") return;
+
+    this._uniforms.uTime.value       = elapsed;
+    this._ring1.uniforms.uTime.value = elapsed;
+    this._stateTime += dt;
+
+    const n = this._n, pos = this._posArr;
+    const cx = this.center.x, cz = this.center.z;
+
+    for (let i = 0; i < n; i++) {
+      this._orbitAng[i] += ORBIT_SPEED * this._orbitDir[i] *
+        (0.6 + 0.4 * Math.abs(Math.sin(elapsed * 0.3 + this._orbitPhase[i]))) * dt;
+    }
+
+    if (this._state === "gathering") {
+      this._alphaMul = Math.min(1, this._alphaMul + dt * 0.55);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+
+      const colorT = Math.max(0, Math.min(1, (this._stateTime - 0.8) / 1.6));
+      this._uniforms.uColor.value.lerpColors(this._gatherStartCol, this._songCol, colorT);
+
+      let allClose = true;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        if (this._stateTime < this._gatherDelay[i]) {
+          allClose = false;
+          pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+          continue;
+        }
+        const tx = cx + Math.cos(this._orbitAng[i]) * this._orbitR[i];
+        const tz = cz + Math.sin(this._orbitAng[i]) * this._orbitR[i];
+        const dx = tx - pos[i3], dz = tz - pos[i3 + 2];
+        const d  = Math.sqrt(dx * dx + dz * dz);
+        if (d > 0.2) {
+          allClose = false;
+          const speed = Math.min(GATHER_SPEED * 2.4, d * 4.2 + 1.5);
+          const m = Math.min(speed * dt, d - 0.18);
+          pos[i3]     += (dx / d) * m;
+          pos[i3 + 2] += (dz / d) * m;
+        } else {
+          pos[i3] = tx; pos[i3 + 2] = tz;
+        }
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+      }
+
+      if (allClose || this._stateTime > 8.0) {
+        this._uniforms.uColor.value.copy(this._songCol);
+        this._state = "idle"; this._stateTime = 0;
+      }
+      this._setRingState(Math.min(0.7, this._stateTime * 0.12));
+
+    } else if (this._state === "idle") {
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const wave = Math.sin(elapsed * 1.7 + this._orbitPhase[i]) * 0.12
+                   + Math.sin(elapsed * 3.4 + this._orbitAng[i] * 1.7) * 0.05;
+        const r  = this._orbitR[i] * (0.88 + wave);
+        pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
+      }
+      const pulseRaw = 0.5 + 0.5 * Math.sin(elapsed * 2.0);
+      this._uniforms.uPulse.value = pulseRaw * 0.32;
+      const breathe = 0.55 + 0.18 * Math.sin(elapsed * 1.7) + 0.07 * Math.sin(elapsed * 4.3);
+      const rScale  = 1.00 + 0.06 * Math.sin(elapsed * 1.7) + 0.02 * Math.sin(elapsed * 3.1);
+      this._setRingState(breathe, rScale, pulseRaw * 0.25);
+
+    } else if (this._state === "activating") {
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        if (this._hasTarget[i]) {
+          const tx = this._targets[i3], tz = this._targets[i3 + 2];
+          const dx = tx - pos[i3], dz = tz - pos[i3 + 2];
+          const d  = Math.sqrt(dx * dx + dz * dz);
+          if (d > 0.04) { const m = Math.min(FORM_SPEED * dt, d); pos[i3] += (dx/d)*m; pos[i3+2] += (dz/d)*m; }
+          else           { pos[i3] = tx; pos[i3 + 2] = tz; }
+        } else {
+          const r = this._orbitR[i] * 0.42;
+          pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
+          pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
+        }
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+      }
+      if (this._stateTime > 1.4) { this._state = "active"; this._stateTime = 0; }
+      const aPulse = Math.abs(Math.sin(elapsed * 4.5));
+      const pulse  = 0.65 + 0.30 * aPulse;
+      const rScale = 1.06 + 0.04 * Math.sin(elapsed * 4.5);
+      this._setRingState(pulse, rScale, aPulse * 0.5);
+      this._uniforms.uAlphaMul.value = Math.min(1.15, this._alphaMul * 1.15);
+
+    } else if (this._state === "active") {
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        if (this._hasTarget[i]) {
+          const tx = this._targets[i3], tz = this._targets[i3 + 2];
+          const shimmer = 0.03 + 0.02 * Math.sin(elapsed * 3.2 + i * 0.08);
+          pos[i3]     = tx + Math.sin(elapsed * 2.1 + i * 0.05) * shimmer;
+          pos[i3 + 1] = waveHeight(tx, tz, elapsed) + 0.12;
+          pos[i3 + 2] = tz + Math.cos(elapsed * 1.6 + i * 0.07) * shimmer;
+        } else {
+          const r = this._orbitR[i] * 0.42;
+          pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
+          pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+          pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
+        }
+      }
+      const rawPulse = Math.abs(Math.sin(elapsed * 5.0));
+      this._uniforms.uPulse.value = rawPulse * 0.85;
+      const pulse  = 0.55 + 0.45 * rawPulse;
+      const rScale = 1.10 + 0.06 * Math.sin(elapsed * 5.0);
+      this._setRingState(pulse, rScale, rawPulse * 0.7);
+      this._uniforms.uAlphaMul.value = Math.min(1.3, this._alphaMul * 1.3);
+
+    } else if (this._state === "returning") {
+      let allClose = true;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const tx = cx + Math.cos(this._orbitAng[i]) * this._orbitR[i];
+        const tz = cz + Math.sin(this._orbitAng[i]) * this._orbitR[i];
+        const dx = tx - pos[i3], dz = tz - pos[i3 + 2];
+        const d  = Math.sqrt(dx * dx + dz * dz);
+        if (d > 0.15) {
+          allClose = false;
+          const m = Math.min(FORM_SPEED * dt, d);
+          pos[i3]     += (dx / d) * m;
+          pos[i3 + 2] += (dz / d) * m;
+        } else {
+          pos[i3] = tx; pos[i3 + 2] = tz;
+        }
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+      }
+      if (allClose) { this._state = "idle"; this._stateTime = 0; }
+      const t      = Math.min(1, this._stateTime / 0.8);
+      const breathe = 0.58 + 0.22 * Math.sin(elapsed * 1.7);
+      const rScale  = (1.08 * (1 - t) + 1.0 * t) + 0.04 * Math.sin(elapsed * 1.7) * t;
+      this._setRingState(breathe, rScale);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+
+    } else if (this._state === "scattered") {
+      this._alphaMul = Math.max(0, this._alphaMul - dt * 0.6);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        this._velArr[i3]     *= 0.93;
+        this._velArr[i3 + 2] *= 0.93;
+        pos[i3]     += this._velArr[i3]     * dt;
+        pos[i3 + 2] += this._velArr[i3 + 2] * dt;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+      }
+      const rScale = 1.0 + (1.0 - this._alphaMul) * 0.28;
+      this._setRingState(this._alphaMul * 0.9, rScale);
+
+    } else if (this._state === "selectedScatter") {
+      this._alphaMul = Math.max(0, this._alphaMul - dt * 0.85);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      const yBoost = Math.max(0, 0.55 - this._stateTime * 1.8);
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        this._velArr[i3]     *= 0.97;
+        this._velArr[i3 + 2] *= 0.97;
+        pos[i3]     += this._velArr[i3]     * dt;
+        pos[i3 + 2] += this._velArr[i3 + 2] * dt;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12 + yBoost;
+      }
+      const rScale = 1.0 + (1.0 - this._alphaMul) * 0.55;
+      this._setRingState(Math.min(1.3, this._alphaMul * 1.8), rScale);
+
+    } else if (this._state === "titleFade") {
+      // Particles: flash burst then slow dissolve
+      const decayRate = this._alphaMul > 1.0 ? 7.0 : 0.55;
+      this._alphaMul = Math.max(0, this._alphaMul - dt * decayRate);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      const flashPulse = Math.max(0, this._uniforms.uPulse.value - dt * 5.0);
+      this._uniforms.uPulse.value = flashPulse;
+
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        this._velArr[i3]     *= 0.985;
+        this._velArr[i3 + 2] *= 0.985;
+        pos[i3]     += this._velArr[i3]     * dt;
+        pos[i3 + 2] += this._velArr[i3 + 2] * dt;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+      }
+
+      // Ring: smooth independent fade (flash color → song color, opacity → 0)
+      this._ringFade = Math.max(0, this._ringFade - dt * 0.48);
+      this._tmpCol1.copy(this._songCol).lerp(this._white, flashPulse * 0.8);
+      this._ring1.uniforms.uColor.value.copy(this._tmpCol1);
+      this._ring1.uniforms.uOpacity.value = this._ringFade * (1.0 + flashPulse * 0.6);
+      this._ring1.uniforms.uPulse.value   = flashPulse;
+      const rScale = 1.0 + (1.0 - this._ringFade) * 0.35;
+      this._ring1.mesh.scale.set(rScale, 1, rScale);
+    }
+
+    this._pts.geometry.attributes.position.needsUpdate = true;
+  }
+
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    const sc = this.engine.scene;
+    sc.remove(this._pts);  this._pts.geometry.dispose();  this._pts.material.dispose();
+    sc.remove(this._ring1.mesh); this._ring1.geo.dispose(); this._ring1.mat.dispose();
+  }
+}
+
+// ── SongCircleSystem ──────────────────────────────────────────────────────────
+
+export class SongCircleSystem {
+  constructor(engine, boat, onSelect) {
+    this.engine    = engine;
+    this.boat      = boat;
+    this.onSelect  = onSelect;
+    this._circles  = [];
+    this._activeIdx = -1;
+    this._disposed  = false;
+
+    this._hintWorldPos = new THREE.Vector3();
+
+    const spacing = 5.5, total = (SONGS.length - 1) * spacing;
+    SONGS.forEach((song, i) => {
+      this._circles.push(
+        new SongCircle(engine, new THREE.Vector3(i * spacing - total / 2, 0, -14), song, i)
+      );
+    });
+
+    this._onKeyDown = (e) => {
+      if (e.key === "Enter" && this._activeIdx >= 0 && !this._disposed) {
+        this.onSelect?.(this._activeIdx);
+      }
+    };
+    window.addEventListener("keydown", this._onKeyDown);
+
+    this._enterHint = document.createElement("div");
+    this._enterHint.id = "song-enter-hint";
+    this._enterHint.innerHTML = `Press <kbd>&#9166; Enter</kbd> to start`;
+    this._enterHint.style.display = "none";
+    document.body.appendChild(this._enterHint);
+
+    this._updatable = { update: (dt, el) => this._update(dt, el) };
+    engine.addUpdatable(this._updatable);
+  }
+
+  startGather() {
+    for (const c of this._circles) c.startGather();
+  }
+
+  startGatherFrom(introFormPosArray) {
+    const numCircles = this._circles.length;
+    const perCircle  = this._circles[0]._n;
+
+    const bins   = Array.from({ length: numCircles }, () => []);
+    const filled = new Int32Array(numCircles);
+
+    if (introFormPosArray && introFormPosArray.length > 0) {
+      const total = introFormPosArray.length / 3;
+      for (let i = 0; i < total; i++) {
+        const px = introFormPosArray[i * 3];
+        const pz = introFormPosArray[i * 3 + 2];
+        let bestCi = -1, bestD2 = Infinity;
+        for (let ci = 0; ci < numCircles; ci++) {
+          if (filled[ci] >= perCircle) continue;
+          const c  = this._circles[ci];
+          const dx = px - c.center.x, dz = pz - c.center.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestD2) { bestD2 = d2; bestCi = ci; }
+        }
+        if (bestCi >= 0) { bins[bestCi].push(i); filled[bestCi]++; }
+      }
+    }
+
+    const delayCircles = [];
+    for (let ci = 0; ci < numCircles; ci++) {
+      const circle = this._circles[ci];
+      if (circle._state !== "waiting") { circle.startGather(); continue; }
+
+      const bin = bins[ci];
+      for (let j = 0; j < perCircle; j++) {
+        if (j < bin.length) {
+          const src = bin[j];
+          circle._posArr[j * 3]     = introFormPosArray[src * 3];
+          circle._posArr[j * 3 + 1] = 0.15;
+          circle._posArr[j * 3 + 2] = introFormPosArray[src * 3 + 2];
+        } else {
+          const a = Math.random() * Math.PI * 2;
+          const r = 1 + Math.random() * 9;
+          circle._posArr[j * 3]     = Math.cos(a) * r;
+          circle._posArr[j * 3 + 1] = 0.15;
+          circle._posArr[j * 3 + 2] = 3 + Math.sin(a) * r;
+        }
+      }
+
+      circle._alphaMul = 0;
+      circle._uniforms.uAlphaMul.value = 0;
+      circle._uniforms.uColor.value.set(0x88e8ff);
+      circle._pts.geometry.attributes.position.needsUpdate = true;
+      circle._state     = "gathering";
+      circle._stateTime = 0;
+      delayCircles.push(circle);
+    }
+
+    if (delayCircles.length > 0) {
+      const MAX_DELAY = 1.2;
+      let globalMinZ = Infinity, globalMaxZ = -Infinity;
+      for (const circle of delayCircles) {
+        for (let j = 0; j < circle._n; j++) {
+          const pz = circle._posArr[j * 3 + 2];
+          if (pz < globalMinZ) globalMinZ = pz;
+          if (pz > globalMaxZ) globalMaxZ = pz;
+        }
+      }
+      const zRange = globalMaxZ - globalMinZ;
+      for (const circle of delayCircles) {
+        for (let j = 0; j < circle._n; j++) {
+          const pz = circle._posArr[j * 3 + 2];
+          circle._gatherDelay[j] = zRange > 0.5
+            ? ((pz - globalMinZ) / zRange) * MAX_DELAY
+            : 0;
+        }
+      }
+    }
+  }
+
+  _update(dt, elapsed) {
+    if (this._disposed) return;
+
+    const bp = this.boat.getPosition();
+    let nearIdx = -1, nearDist = Infinity;
+
+    for (let i = 0; i < this._circles.length; i++) {
+      const c  = this._circles[i];
+      c.update(dt, elapsed);
+
+      const st = c._state;
+      if (st === "idle" || st === "activating" || st === "active" || st === "returning") {
+        const dx = bp.x - c.center.x, dz = bp.z - c.center.z;
+        const d  = Math.sqrt(dx * dx + dz * dz);
+        if (d < ACTIVATE_DIST && d < nearDist) { nearDist = d; nearIdx = i; }
+      }
+    }
+
+    if (nearIdx !== this._activeIdx) {
+      if (this._activeIdx >= 0) this._circles[this._activeIdx].deactivate();
+      this._activeIdx = nearIdx;
+      if (nearIdx >= 0)         this._circles[nearIdx].activate();
+    }
+
+    if (this._activeIdx >= 0) {
+      const c = this._circles[this._activeIdx];
+      this._hintWorldPos.set(c.center.x, 0, c.center.z + HINT_OFFSET);
+      this._hintWorldPos.project(this.engine.camera);
+      const sx = (this._hintWorldPos.x + 1) / 2 * window.innerWidth;
+      const sy = (-this._hintWorldPos.y + 1) / 2 * window.innerHeight;
+      this._enterHint.style.left    = sx + "px";
+      this._enterHint.style.top     = sy + "px";
+      this._enterHint.style.display = "block";
+    } else {
+      this._enterHint.style.display = "none";
+    }
+  }
+
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    window.removeEventListener("keydown", this._onKeyDown);
+    this._enterHint.remove();
+    this.engine.removeUpdatable(this._updatable);
+    for (const c of this._circles) c.dispose();
+    this._circles = [];
+  }
+}

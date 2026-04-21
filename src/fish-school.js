@@ -93,7 +93,7 @@ function sampleTextPoints(text, letterSpacing = "", maxPoints = MAX_SAMPLE_POINT
   const cacheKey = `${text}::${letterSpacing}::${maxPoints}::${outlineOnly}`;
   if (_textCache.has(cacheKey)) return _textCache.get(cacheKey);
 
-  const canvasW = 2048, canvasH = 256;
+  const canvasW = 1024, canvasH = 128;
   const canvas = document.createElement("canvas");
   canvas.width = canvasW; canvas.height = canvasH;
   const ctx = canvas.getContext("2d");
@@ -102,7 +102,7 @@ function sampleTextPoints(text, letterSpacing = "", maxPoints = MAX_SAMPLE_POINT
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
-  let fontSize = 80;
+  let fontSize = 60;
   ctx.font = font(fontSize);
   ctx.letterSpacing = letterSpacing;
   while (ctx.measureText(text).width > canvasW * 0.92 && fontSize > 12) {
@@ -255,8 +255,9 @@ export class LyricFormation {
     this.mesh.renderOrder   = 1; // render above water
     engine.scene.add(this.mesh);
 
-    // Set text formation targets
-    this._setPhrase(text);
+    // Defer heavy text-sampling + particle assignment to the first update() call
+    // so the frame that spawns this formation doesn't stutter.
+    this._pendingPhrase = text;
 
     // Fade in
     this._alphaMul  = 0;
@@ -271,7 +272,17 @@ export class LyricFormation {
     this._colorShiftTimer    = 0;
     this._colorShiftDuration = 1;
 
+    this._pendingAssign = false;
     this._disposed = false;
+  }
+
+  static prewarmPhrase(text, opts = {}) {
+    sampleTextPoints(
+      text,
+      opts.letterSpacing ?? "",
+      opts.particleCount ?? MAX_SAMPLE_POINTS,
+      opts.outlineOnly   ?? true,
+    );
   }
 
   // ── Public ──────────────────────────────────────────────
@@ -328,9 +339,10 @@ export class LyricFormation {
     const points2D = sampleTextPoints(text, this._letterSpacing, this._particleCount, this._outlineOnly);
     this._textPointsLocal = points2D.map(p => ({
       lx: p.lx * tw,
-      lz: -p.ly * fyr, // negate: top of text faces camera
+      lz: -p.ly * fyr,
     }));
-    this._assignTargets();
+    // _assignTargets() is called the following frame via _pendingAssign
+    // to spread the two heavy operations across separate frames.
   }
 
   _assignTargets() {
@@ -353,7 +365,7 @@ export class LyricFormation {
     fishByX.sort((a, b) => a.x - b.x);
 
     for (let i = 0; i < this._particleCount; i++) this.hasTarget[i] = 0;
-    const used = new Set();
+    const used = new Uint8Array(this._particleCount); // O(1) lookup vs Set
 
     for (const wt of worldTargets) {
       const pt = pts[wt.idx];
@@ -368,18 +380,18 @@ export class LyricFormation {
       const W = 200;
       for (let fi = Math.max(0, lo - W); fi < Math.min(fishByX.length, lo + W); fi++) {
         const fIdx = fishByX[fi].idx;
-        if (used.has(fIdx)) continue;
+        if (used[fIdx]) continue;
         const dx = this.posArray[fIdx * 3] - wt.wx;
         const dz = this.posArray[fIdx * 3 + 2] - wt.wz;
         const d2 = dx * dx + dz * dz;
         if (d2 < bestDist) { bestDist = d2; bestIdx = fIdx; }
       }
       if (bestIdx < 0) {
-        for (const f of fishByX) { if (!used.has(f.idx)) { bestIdx = f.idx; break; } }
+        for (const f of fishByX) { if (!used[f.idx]) { bestIdx = f.idx; break; } }
       }
 
       if (bestIdx >= 0) {
-        used.add(bestIdx);
+        used[bestIdx] = 1;
         this.hasTarget[bestIdx] = 1;
         this.targets[bestIdx * 3]     = pt.lx;
         this.targets[bestIdx * 3 + 1] = 0;
@@ -392,6 +404,21 @@ export class LyricFormation {
 
   update(dt, elapsed, boatPos, boatVel) {
     if (this._disposed) return;
+    // Clamp dt so a frame hitch (canvas getImageData stall on first phrase render)
+    // doesn't teleport particles or spike their alpha on that single large-dt frame.
+    dt = Math.min(dt, 0.05);
+
+    // Two-phase deferred processing — spreads the two expensive ops across frames:
+    // Frame N+1: sampleTextPoints (getImageData readback) → stores _textPointsLocal
+    // Frame N+2: _assignTargets (O(n×W) greedy sort/match) → particles get targets
+    if (this._pendingPhrase) {
+      this._setPhrase(this._pendingPhrase);
+      this._pendingPhrase = null;
+      this._pendingAssign = true;
+    } else if (this._pendingAssign) {
+      this._assignTargets();
+      this._pendingAssign = false;
+    }
 
     const uniforms = this._uniforms;
     uniforms.uTime.value = elapsed;

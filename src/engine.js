@@ -19,6 +19,10 @@ export class Engine {
     this.renderer.setClearColor(0xb8daf0);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Required for MeshPhysicalMaterial transmission (glass) and correct PBR colours
+    this.renderer.toneMapping        = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.0;
+    this.renderer.outputColorSpace   = THREE.SRGBColorSpace;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -39,12 +43,13 @@ export class Engine {
       boat:  new CANNON.Material("boat"),
       lyric: new CANNON.Material("lyric"),
       water: new CANNON.Material("water"),
+      icon:  new CANNON.Material("icon"),
     };
 
-    // 船 vs 歌詞: 高弾性（弾き飛ばす）、低摩擦（滑る）
+    // 船 vs 木板: 木材らしい低弾性、中摩擦（弾かず押し流す）
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.boat, this.materials.lyric,
-      { friction: 0.1, restitution: 0.7 }
+      { friction: 0.3, restitution: 0.05 }
     ));
 
     // 歌詞 vs 水面: 高摩擦（着水後すぐ止まる）、低弾性
@@ -59,10 +64,16 @@ export class Engine {
       { friction: 0.3, restitution: 0.05 }
     ));
 
-    // 歌詞 vs 歌詞: 軽い弾性
+    // 板 vs 板: 摩擦高め・弾性ほぼなし（衝突後すぐ静止）
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.lyric, this.materials.lyric,
-      { friction: 0.2, restitution: 0.4 }
+      { friction: 0.6, restitution: 0.02 }
+    ));
+
+    // 船 vs Icon: zero restitution — collision is detection-only for song selection
+    this.world.addContactMaterial(new CANNON.ContactMaterial(
+      this.materials.boat, this.materials.icon,
+      { friction: 0, restitution: 0 }
     ));
 
     // Physics timestep

@@ -20,6 +20,7 @@ export class FishLyricSystem {
     this.boat        = boat;
     this._formations = [];
     this._lastSlot   = 1; // start so first phrase spawns in slot 0 (front)
+    this._activeColor = 0x88eeff;
     engine.addUpdatable(this);
   }
 
@@ -29,6 +30,11 @@ export class FishLyricSystem {
 
     // Count only formations that are still visible (not already fading out)
     const active = this._formations.filter(f => f._fadeState !== "out");
+
+    // Prevent double-render: skip if the most recent active formation already shows this text.
+    // This catches timer quirks where the same phrase fires more than once.
+    if (active.length > 0 && active[active.length - 1]._phraseText === text) return;
+
     // Evict oldest active ones until we're under cap
     while (active.length >= MAX_PHRASES) {
       active.shift().startFade();
@@ -57,7 +63,7 @@ export class FishLyricSystem {
       boatPos.z + fz * SPAWN_DIST * sign + fx   * SPAWN_SIDE_OFF,
     );
 
-    const color = 0x88eeff;
+    const color = this._activeColor;
     const formation = new LyricFormation(this.engine, center, text, color, {
       particleCount: 2400,
       sizeBase:   0.1,
@@ -66,7 +72,8 @@ export class FishLyricSystem {
       glowMax:    4.0,
       outlineOnly: false,
     });
-    formation._age = 0; // tracked here for auto-expire
+    formation._age        = 0;    // tracked here for auto-expire
+    formation._phraseText = text; // used by duplicate-guard above
     this._formations.push(formation);
   }
 
@@ -75,8 +82,9 @@ export class FishLyricSystem {
     for (const f of this._formations) f.startFade();
   }
 
-  /** Trigger a color shift on all active formations (called by note collision) */
+  /** Trigger a color shift on all active formations and persist for future phrases */
   triggerColorShift(hexColor, duration = 3.0) {
+    this._activeColor = hexColor;
     for (const f of this._formations) f.triggerColorShift(hexColor, duration);
   }
 
