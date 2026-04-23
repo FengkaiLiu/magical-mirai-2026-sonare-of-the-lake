@@ -240,7 +240,7 @@ class SongCircle {
 
   activate() {
     const s = this._state;
-    if (s === "active" || s === "activating" || s === "waiting" || s === "gathering") return;
+    if (s === "active" || s === "activating" || s === "waiting") return;
     this._state     = "activating";
     this._stateTime = 0;
     this._assignTextTargets();
@@ -688,7 +688,7 @@ export class SongCircleSystem {
       c.update(dt, elapsed);
 
       const st = c._state;
-      if (st === "idle" || st === "activating" || st === "active" || st === "returning") {
+      if (st === "idle" || st === "activating" || st === "active" || st === "returning" || st === "gathering") {
         const dx = bp.x - c.center.x, dz = bp.z - c.center.z;
         const d  = Math.sqrt(dx * dx + dz * dz);
         if (d < ACTIVATE_DIST && d < nearDist) { nearDist = d; nearIdx = i; }

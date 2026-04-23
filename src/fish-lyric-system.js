@@ -77,9 +77,10 @@ export class FishLyricSystem {
     this._formations.push(formation);
   }
 
-  /** Fade out and discard all active formations immediately */
+  /** Immediately remove all active formations (used on visibility restore). */
   clear() {
-    for (const f of this._formations) f.startFade();
+    for (const f of this._formations) f.dispose();
+    this._formations = [];
   }
 
   /** Trigger a color shift on all active formations and persist for future phrases */

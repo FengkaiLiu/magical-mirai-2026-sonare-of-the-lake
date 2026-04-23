@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { waveHeight } from "./boat.js";
+import { preloadGLTF } from "./asset-cache.js";
 
 // ─── Config ─────────────────────────────────────────────
 
@@ -26,7 +27,16 @@ const NOTE_COLORS = [
   0x88aaff, 0xff8844, 0xaaffee, 0xff44aa,
 ];
 
+// Scale applied to the musicnote.glb scene root — tweak if the model appears too large/small.
+const NOTE_MODEL_SCALE = 0.4;
+
 function randRange(a, b) { return a + Math.random() * (b - a); }
+
+// Shared geometries for note halo and icosahedron fallback — avoids per-note allocation.
+let _NOTE_HALO_GEO     = null;
+let _NOTE_FALLBACK_GEO = null;
+function getNoteHaloGeo()     { return _NOTE_HALO_GEO     ??= new THREE.IcosahedronGeometry(0.7, 1); }
+function getNoteFallbackGeo() { return _NOTE_FALLBACK_GEO ??= new THREE.IcosahedronGeometry(0.45, 1); }
 
 // Shared geometry + material for all planks — no per-plank GPU allocation or disposal stall.
 const _PLANK_GEO = new THREE.BoxGeometry(2.2, 0.18, 0.55);
@@ -58,6 +68,12 @@ export class WaterObjects {
     this._score   = 0;
     this._scoreEl = this._initScoreEl();
     this._boatBody = boat.body;
+
+    // Pre-load music note GLB; assigned when resolved so _createNote can use it immediately.
+    this._noteModel = null;
+    preloadGLTF("models/musicnote.glb").then(gltf => {
+      this._noteModel = gltf;
+    }).catch(e => console.warn("[WaterObjects] Failed to load musicnote.glb:", e));
 
     engine.addUpdatable(this);
   }
@@ -137,15 +153,35 @@ export class WaterObjects {
   }
 
   _createNote(pos, color) {
-    const geo = new THREE.IcosahedronGeometry(0.45, 1);
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
-    const mesh = new THREE.Mesh(geo, mat);
+    const colorObj = new THREE.Color(color);
+    let mesh;
 
+    if (this._noteModel) {
+      // Clone the cached GLB scene so each note is independent
+      const root = this._noteModel.scene.clone(true);
+      root.scale.setScalar(NOTE_MODEL_SCALE);
+      root.traverse(child => {
+        if (!child.isMesh) return;
+        child.material              = child.material.clone();
+        child.material.transparent  = true;
+        child.material.opacity      = 0.9;
+        child.material.emissive     = colorObj.clone();
+        child.material.emissiveIntensity = 1.5;
+        child.material.depthWrite   = false;
+      });
+      mesh = root;
+    } else {
+      // Fallback until GLB resolves (rare — model loads fast from cache)
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
+      mesh = new THREE.Mesh(getNoteFallbackGeo(), mat);
+    }
+
+    // Additive glow halo — shared geometry, per-note material
     const haloMat = new THREE.MeshBasicMaterial({
       color, transparent: true, opacity: 0.25,
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
     });
-    mesh.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 1), haloMat));
+    mesh.add(new THREE.Mesh(getNoteHaloGeo(), haloMat));
 
     const wy = waveHeight(pos.x, pos.z, this._elapsed) + 0.5;
     mesh.position.set(pos.x, wy, pos.z);
@@ -161,7 +197,7 @@ export class WaterObjects {
     body.position.set(pos.x, wy, pos.z);
     this.engine.world.addBody(body);
 
-    const note = { mesh, body, color, alive: true, age: 0, fadeOut: false, opacity: 0.85 };
+    const note = { mesh, body, color, alive: true, age: 0, fadeOut: false, opacity: 0.9 };
     body.addEventListener("collide", (event) => {
       if (!note.alive || note.fadeOut) return;
       if (event.body === this._boatBody) { note.fadeOut = true; note._pendingHit = true; }
@@ -278,7 +314,9 @@ export class WaterObjects {
       n.mesh.rotation.y += dt * 1.2;
       if (n.fadeOut) {
         n.opacity = Math.max(0, n.opacity - dt * 3);
-        n.mesh.material.opacity = n.opacity;
+        n.mesh.traverse(child => {
+          if (child.isMesh && child.material) child.material.opacity = n.opacity;
+        });
         if (n.opacity <= 0) { this._destroyNote(n); this._notes.splice(i, 1); }
       }
       if (n.age > 30 && !n.fadeOut) n.fadeOut = true;
@@ -332,8 +370,11 @@ export class WaterObjects {
   _destroyNote(n) {
     this._pendingBodyRemoval.push(n.body);
     this.engine.scene.remove(n.mesh);
-    n.mesh.geometry.dispose();
-    n.mesh.material.dispose();
+    // Dispose only per-note cloned materials. Geometries are shared (GLB cache /
+    // module-level getNoteHaloGeo / getNoteFallbackGeo) — do NOT dispose them.
+    n.mesh.traverse(child => {
+      if (child.isMesh) child.material?.dispose();
+    });
   }
 
   dispose() {

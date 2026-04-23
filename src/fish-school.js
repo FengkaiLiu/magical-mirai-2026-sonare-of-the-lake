@@ -207,16 +207,40 @@ export class LyricFormation {
     this._baseAlphas = new Float32Array(particleCount); // original alphas for restore
 
     const cx = this._center.x, cz = this._center.z;
-    for (let i = 0; i < particleCount; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const r     = Math.random() * this._poolRadius;
-      this.posArray[i * 3]     = cx + Math.cos(angle) * r;
-      this.posArray[i * 3 + 1] = SURFACE_OFFSET; // will be corrected each frame
-      this.posArray[i * 3 + 2] = cz + Math.sin(angle) * r;
 
-      this.velocities[i * 3]     = (Math.random() - 0.5) * 1.5;
-      this.velocities[i * 3 + 1] = 0;
-      this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
+    // skipGather: place particles directly at their text positions so no gathering
+    // animation is visible — particles fade in already formed.
+    let skipGatherPts = null;
+    if (opts.skipGather) {
+      const tw  = TEXT_WIDTH   * this._textScale;
+      const fyr = FORM_Y_RANGE * this._textScale;
+      const pts2D = sampleTextPoints(text, this._letterSpacing, particleCount, this._outlineOnly);
+      skipGatherPts = pts2D.map(p => ({ lx: p.lx * tw, lz: -p.ly * fyr }));
+    }
+
+    for (let i = 0; i < particleCount; i++) {
+      if (skipGatherPts) {
+        const pt = skipGatherPts[i % skipGatherPts.length];
+        this.posArray[i * 3]     = cx + pt.lx;
+        this.posArray[i * 3 + 1] = SURFACE_OFFSET;
+        this.posArray[i * 3 + 2] = cz + pt.lz;
+        this.targets[i * 3]     = pt.lx;
+        this.targets[i * 3 + 1] = 0;
+        this.targets[i * 3 + 2] = pt.lz;
+        this.hasTarget[i] = 1;
+        this.velocities[i * 3]     = 0;
+        this.velocities[i * 3 + 1] = 0;
+        this.velocities[i * 3 + 2] = 0;
+      } else {
+        const angle = Math.random() * Math.PI * 2;
+        const r     = Math.random() * this._poolRadius;
+        this.posArray[i * 3]     = cx + Math.cos(angle) * r;
+        this.posArray[i * 3 + 1] = SURFACE_OFFSET; // will be corrected each frame
+        this.posArray[i * 3 + 2] = cz + Math.sin(angle) * r;
+        this.velocities[i * 3]     = (Math.random() - 0.5) * 1.5;
+        this.velocities[i * 3 + 1] = 0;
+        this.velocities[i * 3 + 2] = (Math.random() - 0.5) * 1.5;
+      }
 
       this.phases[i] = Math.random() * Math.PI * 2;
       this.sizes[i]  = sizeBase + Math.random() * sizeRange;
@@ -247,6 +271,7 @@ export class LyricFormation {
       uniforms:       this._uniforms,
       transparent:    true,
       depthWrite:     false,
+      depthTest:      false, // additive particles must never be occluded by clouds or geometry
       blending:       THREE.AdditiveBlending,
     });
 
@@ -257,7 +282,8 @@ export class LyricFormation {
 
     // Defer heavy text-sampling + particle assignment to the first update() call
     // so the frame that spawns this formation doesn't stutter.
-    this._pendingPhrase = text;
+    // skipGather already handled above — no deferred work needed in that case.
+    this._pendingPhrase = skipGatherPts ? null : text;
 
     // Fade in
     this._alphaMul  = 0;

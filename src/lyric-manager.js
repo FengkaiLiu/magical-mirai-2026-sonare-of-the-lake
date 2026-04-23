@@ -324,6 +324,15 @@ class SkyLyricSystem {
     });
   }
 
+  clearAll() {
+    for (const p of this.phrases) {
+      this.engine.scene.remove(p.mesh);
+      p.mesh.material.dispose();
+      p.mesh.dispose();
+    }
+    this.phrases = [];
+  }
+
   dispose() {
     for (const p of this.phrases) {
       if (p.mesh.parent) this.engine.scene.remove(p.mesh);
@@ -367,6 +376,14 @@ export class LyricManager {
 
   setSkyConvergenceTime(t) {
     this.skySystem.setConvergenceTime(t);
+  }
+
+  /** Remove all queued/visible lyrics immediately — used when returning from background. */
+  clear() {
+    for (const s of this.sprites) s.dispose();
+    this.sprites = [];
+    this.currentText = "";
+    this.skySystem.clearAll();
   }
 
   addPhrase(text) {

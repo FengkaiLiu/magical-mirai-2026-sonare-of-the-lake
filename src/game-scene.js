@@ -63,8 +63,70 @@ export class GameScene {
     this.player       = null;
     this.audioContext = null;
 
+    // Kick off TextAlive preloading for all songs, staggered 300 ms apart so we
+    // don't hammer the TextAlive API with 6 simultaneous requests (which can cause
+    // silent failures).  The intro sequence takes ~10 s before the user can select
+    // anything, so all songs will be fully loaded well before then.
+    this._preloadedSongs = SONGS.map((song, i) => {
+      const entry = { player: null, audioEl: null, video: null, timerReady: false, managed: false };
+      setTimeout(() => { if (!this._disposed) this._startPreload(song, entry); }, i * 300);
+      return entry;
+    });
+
     this._updatable = { update: (dt, el) => this._update(dt, el) };
     engine.addUpdatable(this._updatable);
+  }
+
+  // ── Song preloading ────────────────────────────────────────────────────────
+
+  /** Populate a pre-created entry with a TextAlive Player and start loading. */
+  _startPreload(song, entry) {
+    const audioEl = document.createElement("audio");
+    audioEl.crossOrigin = "anonymous";
+    entry.audioEl = audioEl; // set synchronously so _activatePlay can use it immediately
+
+    entry.player = new Player({ app: { token: "xTTinPuYYoHYLhnk" }, mediaElement: audioEl });
+    entry.player.addListener({
+      onAppReady: (app) => {
+        entry.managed = app.managed;
+        if (!app.managed) entry.player.createFromSongUrl(song.url, song.options);
+      },
+      onVideoReady: (v) => {
+        if (!v) return;
+        entry.video = v;
+        // Prewarm the text-point cache for all phrases during idle load — no game-state deps.
+        const seen = new Set();
+        let p = v.firstPhrase;
+        while (p) { if (p.text) seen.add(p.text); p = p.next; }
+        const queue = [...seen];
+        let idx = 0;
+        const step = () => {
+          if (idx < queue.length) {
+            LyricFormation.prewarmPhrase(queue[idx++], { outlineOnly: false });
+            requestAnimationFrame(step);
+          }
+        };
+        requestAnimationFrame(step);
+      },
+      onTimerReady: () => { entry.timerReady = true; },
+    });
+  }
+
+  /** Apply BPM-derived sky convergence time once this.lyrics exists. */
+  _applyBPM(v, song) {
+    if (!v || !this.lyrics) return;
+    if (song.skyConvergenceTime != null) {
+      this.lyrics.setSkyConvergenceTime(song.skyConvergenceTime);
+    } else if (Array.isArray(v.beats) && v.beats.length > 0) {
+      const validBeats = v.beats.filter(b => b.duration > 0);
+      if (validBeats.length > 0) {
+        const avgMs = validBeats.reduce((s, b) => s + b.duration, 0) / validBeats.length;
+        const bpm   = 60000 / avgMs;
+        const ct    = Math.max(0.5, Math.min(2.5, 120 / bpm));
+        this.lyrics.setSkyConvergenceTime(ct);
+        console.log(`[SkyLyric] BPM ≈ ${bpm.toFixed(1)}, convergence time = ${ct.toFixed(2)} s`);
+      }
+    }
   }
 
   // ── Intro ──────────────────────────────────────────────────────────────────
@@ -85,11 +147,9 @@ export class GameScene {
   _spawnTitleFormations() {
     if (this._disposed) return;
     const f = new LyricFormation(
-      this.engine,
-      new THREE.Vector3(0, 0, 3),
-      "Sonare of the Lake",
-      0x88e8ff,
-      { textScale: 2.5, poolRadius: 24, letterSpacing: "10px", outlineOnly: false, particleCount: 7200 }
+      this.engine, new THREE.Vector3(0, 0, 3), "Sonare of the Lake", 0x88e8ff,
+      { textScale: 2.5, poolRadius: 24, letterSpacing: "10px", outlineOnly: false,
+        particleCount: 7200, skipGather: true },
     );
     this._introFormations = [f];
   }
@@ -225,15 +285,20 @@ export class GameScene {
 
   _activatePlay(songIndex) {
     this._state = "play";
-    const song  = SONGS[songIndex];
+    const song = SONGS[songIndex];
+    const pre  = this._preloadedSongs[songIndex];
+
+    // Safety: if stagger delay hasn't fired yet (e.g. user somehow selects song 5 in < 1.5 s),
+    // start preloading now synchronously so pre.audioEl exists before we use it below.
+    if (!pre.player) this._startPreload(song, pre);
 
     // Update shared systems in-place — no reconstruction
     this.water.setColors(song.theme.water, song.theme.deep);
     this.env.setTheme(song.theme);
     this.controls.locked = false;
 
-    this.lyrics     = new LyricManager(this.engine, this.boat, song.theme.particle);
-    this.fishLyrics = new FishLyricSystem(this.engine, this.boat);
+    this.lyrics       = new LyricManager(this.engine, this.boat, song.theme.particle);
+    this.fishLyrics   = new FishLyricSystem(this.engine, this.boat);
     this.waterObjects = new WaterObjects(this.engine, this.boat, this.fishLyrics, this.lyrics);
 
     // HUD
@@ -246,17 +311,24 @@ export class GameScene {
       setTimeout(() => { controlsHint.style.opacity = "0"; }, 5000);
     }
 
-    // TextAlive
-    const audioEl = document.createElement("audio");
-    audioEl.crossOrigin = "anonymous";
-    this.player = new Player({ app: { token: "xTTinPuYYoHYLhnk" }, mediaElement: audioEl });
+    // Reuse the preloaded Player + audio element (created in _startPreload).
+    // The Player has already called createFromSongUrl — no need to call it again.
+    this.player = pre.player;
+
+    // Gate lyric display until onPlay confirms audio has actually started.
+    // This prevents phantom lyrics that appear when onTimeUpdate fires in the
+    // brief gap between requestPlay() and the first audio frame.
+    this._playbackStarted = false;
 
     try {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      // Proactively resume — browser may suspend AudioContext created >1 s after
+      // the last user gesture, so unlock it now while we're still on that frame.
+      this.audioContext.resume().catch(() => {});
       this.analyser     = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.audioData    = new Uint8Array(this.analyser.frequencyBinCount);
-      const source = this.audioContext.createMediaElementSource(audioEl);
+      const source = this.audioContext.createMediaElementSource(pre.audioEl);
       source.connect(this.analyser);
       this.analyser.connect(this.audioContext.destination);
       this.env.setAudioAnalyser(this.analyser, this.audioData);
@@ -265,53 +337,43 @@ export class GameScene {
       console.warn("AudioContext setup failed — audio reactivity disabled.", e);
     }
 
-    this._managed    = false;
+    this._managed    = pre.managed;
     this._lastPhrase = null;
     this.skyMode     = false;
     this._autoChorus = false;
 
+    // Apply BPM convergence time if video data already arrived during preload.
+    // If onVideoReady fires later (rare — song just selected too fast), the
+    // listener below will catch it.
+    this._applyBPM(pre.video, song);
+
+    // When returning from a background tab, clear all lyric state so the current
+    // phrase resyncs cleanly instead of bursting.
+    this._onVisibilityChange = () => {
+      if (document.hidden || this._state !== "play") return;
+      this.fishLyrics?.clear();
+      this.lyrics?.clear();
+      this._lastPhrase = null;
+    };
+    document.addEventListener("visibilitychange", this._onVisibilityChange);
+
     this.player.addListener({
-      onAppReady: (app) => {
-        this._managed = app.managed;
-        if (!app.managed) this.player.createFromSongUrl(song.url, song.options);
-      },
+      // onVideoReady fires again only when video wasn't loaded yet at selection time.
       onVideoReady: (v) => {
-        if (!v) return;
-
-        // Derive BPM from beat data and set sky-particle convergence speed.
-        // Fast songs (e.g. TAKEOVER ~150 BPM) → short convergence so particles
-        // form text before the next lyric arrives; slow songs can afford more time.
-        if (this.lyrics && Array.isArray(v.beats) && v.beats.length > 0) {
-          const validBeats = v.beats.filter(b => b.duration > 0);
-          if (validBeats.length > 0) {
-            const avgMs  = validBeats.reduce((s, b) => s + b.duration, 0) / validBeats.length;
-            const bpm    = 60000 / avgMs;
-            // 2 beat-lengths as convergence time: 80 BPM→1.5 s, 120 BPM→1.0 s, 150 BPM→0.8 s
-            const ct = Math.max(0.5, Math.min(2.5, 120 / bpm));
-            this.lyrics.setSkyConvergenceTime(ct);
-            console.log(`[SkyLyric] BPM ≈ ${bpm.toFixed(1)}, convergence time = ${ct.toFixed(2)} s`);
-          }
-        }
-
-        // Pre-warm sampleTextPoints cache for every phrase so the getImageData
-        // GPU readback stall happens here (during load) rather than mid-playback.
-        const seen = new Set();
-        let p = v.firstPhrase;
-        while (p) { if (p.text) seen.add(p.text); p = p.next; }
-        const queue = [...seen];
-        let idx = 0;
-        const step = () => {
-          if (idx < queue.length) {
-            LyricFormation.prewarmPhrase(queue[idx++], { outlineOnly: false });
-            requestAnimationFrame(step);
-          }
-        };
-        requestAnimationFrame(step);
+        if (!v || pre.video) return; // already processed
+        pre.video = v;
+        this._applyBPM(v, song);
       },
+      // onTimerReady fires only if the player wasn't ready yet at selection time.
       onTimerReady: () => {
         if (!this._managed) this.player.requestPlay();
       },
       onTimeUpdate: (pos) => {
+        // Don't dispatch lyrics until onPlay fires — prevents the phantom 1-2
+        // lyric flashes that appear in the gap between requestPlay() and actual
+        // audio output starting.
+        if (document.hidden || !this._playbackStarted) return;
+
         const timeTxt = document.getElementById("time");
         if (timeTxt) timeTxt.textContent =
           `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
@@ -333,6 +395,9 @@ export class GameScene {
         }
       },
       onPlay: () => {
+        // Audio is actually running — unlock lyric display and clear fallback timer.
+        this._playbackStarted = true;
+        if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
         document.getElementById("overlay")?.classList.add("hidden");
         const pauseBtn = document.getElementById("pause-btn");
         if (pauseBtn) pauseBtn.textContent = "⏸";
@@ -343,6 +408,21 @@ export class GameScene {
         if (pauseBtn) pauseBtn.textContent = "▶";
       },
     });
+
+    // Player already timer-ready from preload — start playback immediately.
+    if (pre.timerReady && !this._managed) this.player.requestPlay();
+
+    // Fallback timer: if onPlay hasn't fired within 8 s (e.g. AudioContext stayed
+    // suspended, or the preloaded player silently failed), nudge the AudioContext
+    // and try requestPlay() again so the user isn't stuck on silence.
+    this._playTimeout = setTimeout(() => {
+      if (this._disposed || this._playbackStarted || this._state !== "play") return;
+      console.warn("[GameScene] Playback start timeout — forcing AudioContext resume");
+      this.audioContext?.resume().catch(() => {});
+      if (!this._managed) {
+        try { this.player?.requestPlay(); } catch (e) {}
+      }
+    }, 8000);
 
     document.getElementById("sky-btn")?.addEventListener("click", () => this.toggleSkyMode());
   }
@@ -373,7 +453,17 @@ export class GameScene {
     this._disposed = true;
     this._disposeSelectResources();
 
-    this.player?.dispose();
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
+
+    if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
+
+    // Dispose all preloaded players (including whichever one is currently in use).
+    for (const pre of this._preloadedSongs ?? []) pre.player?.dispose();
+    this._preloadedSongs = [];
+    this.player = null;
     this.audioContext?.close();
     this.lyrics?.dispose();
     this.fishLyrics?.dispose();

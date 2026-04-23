@@ -24,5 +24,5 @@ export const SONGS = [
   { title:"TAKEOVER", artist:"Twinfield", url:"https://piapro.jp/t/E2i3/20251215092113",
     options:{video:{beatId:4827298,chordId:2963759,repetitiveSegmentId:3086266,lyricId:126533,lyricDiffId:28631}},
     theme:{sky:0xc07040, skyHorizon:0xe8c8a0, particle:0xff8860, water:0x6a8070, deep:0x3a5040},
-    chorus:[] },
+    chorus:[], skyConvergenceTime: 0.6 },
 ];
