@@ -1,9 +1,35 @@
+/* ── Custom fonts ─────────────────────────────────────────────────── */
+@font-face {
+  font-family: 'Caveat';
+  src: url('../fonts/Caveat-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'Caveat';
+  src: url('../fonts/Caveat-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KiwiMaru';
+  src: url('../fonts/KiwiMaru-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'KiwiMaru';
+  src: url('../fonts/KiwiMaru-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
   background: #0a1a2e;
   overflow: hidden;
-  font-family: "M PLUS Rounded 1c", "Yu Gothic", "Hiragino Sans", sans-serif;
+  font-family: "KiwiMaru", "M PLUS Rounded 1c", "Yu Gothic", "Hiragino Sans", sans-serif;
 }
 
 #app canvas {
@@ -57,23 +83,23 @@ body {
 
 .intro-logo {
   font-size: clamp(3rem, 8vw, 7rem);
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.04em;
   color: #fff;
   text-shadow:
     0 0 40px rgba(64, 220, 240, 0.8),
     0 0 80px rgba(64, 180, 220, 0.4),
     0 2px 8px rgba(0,0,0,0.7);
-  font-family: "M PLUS Rounded 1c", "Yu Gothic", sans-serif;
+  font-family: 'Caveat', cursive;
 }
 
 .intro-sub {
   font-size: clamp(1.1rem, 2.5vw, 2rem);
   font-weight: 400;
   color: rgba(180, 230, 255, 0.92);
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   text-shadow: 0 0 20px rgba(64, 200, 240, 0.5), 0 1px 4px rgba(0,0,0,0.6);
-  font-family: "M PLUS Rounded 1c", "Yu Gothic", sans-serif;
+  font-family: 'Caveat', cursive;
 }
 
 /* Progress bar */

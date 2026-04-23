@@ -71,6 +71,8 @@ export class FishLyricSystem {
       glowMin:    1.8,
       glowMax:    4.0,
       outlineOnly: false,
+      fontFamily: '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif',
+      fontWeight: "400",
     });
     formation._age        = 0;    // tracked here for auto-expire
     formation._phraseText = text; // used by duplicate-guard above

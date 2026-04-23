@@ -149,7 +149,8 @@ export class GameScene {
     const f = new LyricFormation(
       this.engine, new THREE.Vector3(0, 0, 3), "Sonare of the Lake", 0x88e8ff,
       { textScale: 2.5, poolRadius: 24, letterSpacing: "10px", outlineOnly: false,
-        particleCount: 7200, skipGather: true },
+        particleCount: 7200, skipGather: true,
+        fontFamily: '"Caveat", cursive', fontWeight: "400" },
     );
     this._introFormations = [f];
   }
@@ -320,6 +321,18 @@ export class GameScene {
     // brief gap between requestPlay() and the first audio frame.
     this._playbackStarted = false;
 
+    // Secondary guard: the SongleTimer runs a play()+stop() priming sequence
+    // during initialize(), which leaves its internal lastPosition at whatever
+    // the audio was at when that async stop event fired.  On the first real
+    // requestPlay() the timer may therefore fire one "stale" onTimeUpdate tick
+    // at a non-zero position (equal to the wall-clock seconds elapsed since
+    // preload) before it syncs back to the audio element's currentTime (0).
+    // _initialPlayGuard stays true until we see pos < 2000 ms, so that one
+    // phantom tick can never show a lyric or trigger a chorus/sky-mode flip.
+    // Managed-mode players may start at an arbitrary position set by the
+    // TextAlive editor, so the guard is intentionally skipped for them.
+    this._initialPlayGuard = !pre.managed;
+
     try {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       // Proactively resume — browser may suspend AudioContext created >1 s after
@@ -366,13 +379,28 @@ export class GameScene {
       },
       // onTimerReady fires only if the player wasn't ready yet at selection time.
       onTimerReady: () => {
-        if (!this._managed) this.player.requestPlay();
+        if (!this._managed) {
+          // Seek to 0 before playing — resets any stale SongleTimer position
+          // that accumulated while the player was idle during preload.
+          try { this.player.requestMediaSeek(0); } catch {}
+          this.player.requestPlay();
+        }
       },
       onTimeUpdate: (pos) => {
-        // Don't dispatch lyrics until onPlay fires — prevents the phantom 1-2
-        // lyric flashes that appear in the gap between requestPlay() and actual
-        // audio output starting.
+        // Don't dispatch lyrics until onPlay confirms audio has started.
         if (document.hidden || !this._playbackStarted) return;
+
+        // Drop any stale pre-sync tick.  The SongleTimer may emit one tick
+        // with a non-zero position right after requestPlay() (its internal
+        // lastPosition drifted during the preload idle period) before syncing
+        // to the audio element's currentTime (0).  Any tick with pos > 2 s on
+        // the very first play is treated as stale and discarded; the guard
+        // releases on the first pos ≤ 2 s tick, which confirms the audio
+        // genuinely started from the beginning.
+        if (this._initialPlayGuard) {
+          if (pos > 2000) return;
+          this._initialPlayGuard = false;
+        }
 
         const timeTxt = document.getElementById("time");
         if (timeTxt) timeTxt.textContent =
@@ -410,7 +438,13 @@ export class GameScene {
     });
 
     // Player already timer-ready from preload — start playback immediately.
-    if (pre.timerReady && !this._managed) this.player.requestPlay();
+    // Seek to 0 first: the SongleTimer's internal position may have drifted
+    // during the preload idle period; resetting it here prevents the timer from
+    // reporting a stale non-zero position on the very first onTimeUpdate tick.
+    if (pre.timerReady && !this._managed) {
+      try { this.player.requestMediaSeek(0); } catch {}
+      this.player.requestPlay();
+    }
 
     // Fallback timer: if onPlay hasn't fired within 8 s (e.g. AudioContext stayed
     // suspended, or the preloaded player silently failed), nudge the AudioContext

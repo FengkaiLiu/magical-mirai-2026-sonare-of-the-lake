@@ -68,11 +68,23 @@ export class WaterObjects {
     this._score   = 0;
     this._scoreEl = this._initScoreEl();
     this._boatBody = boat.body;
+    this._buoyForce = new CANNON.Vec3(); // reused per-plank per-frame to avoid heap churn
 
     // Pre-load music note GLB; assigned when resolved so _createNote can use it immediately.
+    // _noteLiftY: how far to raise the mesh so its visual bottom clears the wave surface.
+    // Default 0.5 covers the fallback icosahedron (radius 0.45); overwritten after the
+    // GLB bounding box is measured at NOTE_MODEL_SCALE.
     this._noteModel = null;
+    this._noteLiftY = 0.5;
     preloadGLTF("models/musicnote.glb").then(gltf => {
       this._noteModel = gltf;
+      // Measure the unscaled bounding box of the template scene, then multiply by
+      // NOTE_MODEL_SCALE to get the scaled extents.  If the model origin is anywhere
+      // above the visual bottom (e.g. centred in Blender), box.min.y < 0 and we need
+      // to lift by (-min.y * scale) so the bottom sits exactly at y = waveHeight.
+      // An extra 0.2 gives a small clearance so the note never clips through the surface.
+      const box = new THREE.Box3().setFromObject(gltf.scene);
+      this._noteLiftY = Math.max(0.2, -box.min.y * NOTE_MODEL_SCALE + 0.2);
     }).catch(e => console.warn("[WaterObjects] Failed to load musicnote.glb:", e));
 
     engine.addUpdatable(this);
@@ -183,7 +195,7 @@ export class WaterObjects {
     });
     mesh.add(new THREE.Mesh(getNoteHaloGeo(), haloMat));
 
-    const wy = waveHeight(pos.x, pos.z, this._elapsed) + 0.5;
+    const wy = waveHeight(pos.x, pos.z, this._elapsed) + this._noteLiftY;
     mesh.position.set(pos.x, wy, pos.z);
     this.engine.scene.add(mesh);
 
@@ -295,7 +307,8 @@ export class WaterObjects {
       // so planks free-fall in sub-steps 2+ and then over-correct. Capping the force
       // bounds the correction impulse and prevents violent oscillation.
       const forceY = Math.max(-3, Math.min(3, yErr * 35 - p.body.velocity.y * 10));
-      p.body.applyForce(new CANNON.Vec3(0, forceY, 0));
+      this._buoyForce.set(0, forceY, 0);
+      p.body.applyForce(this._buoyForce);
       p.mesh.position.set(p.body.position.x, p.body.position.y, p.body.position.z);
       p.mesh.quaternion.set(
         p.body.quaternion.x, p.body.quaternion.y, p.body.quaternion.z, p.body.quaternion.w);
@@ -308,7 +321,7 @@ export class WaterObjects {
       const n = this._notes[i];
       n.age += dt;
       const bx = n.mesh.position.x, bz = n.mesh.position.z;
-      const wy  = waveHeight(bx, bz, elapsed) + 0.5;
+      const wy  = waveHeight(bx, bz, elapsed) + this._noteLiftY;
       n.mesh.position.y = wy;
       if (!n.fadeOut) n.body.position.set(bx, wy, bz);
       n.mesh.rotation.y += dt * 1.2;

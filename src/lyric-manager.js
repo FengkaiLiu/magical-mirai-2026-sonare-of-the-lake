@@ -6,18 +6,7 @@
  */
 
 import * as THREE from "three";
-
-function waveHeight(x, z, t, energy = 0) {
-  const ampMod = 1.0 + energy * 2.0;
-  const spdMod = 1.0 + energy * 1.5;
-  const w = (px, pz, dx, dz, len, amp, spd) =>
-    amp * ampMod * Math.sin(Math.PI * (px * dx + pz * dz) / len + spd * spdMod * t);
-  return w(x, z,  0.8,  0.6, 5.0, 0.08, 0.7)
-       + w(x, z, -0.5,  0.8, 8.0, 0.05, 0.5)
-       + w(x, z,  0.3, -0.7, 3.0, 0.03, 1.0)
-       + w(x, z,  0.6, -0.4, 1.5, 0.012, 1.8)
-       + w(x, z, -0.3,  0.9, 2.0, 0.015, 1.4);
-}
+import { waveHeight } from "./boat.js";
 
 /**
  * Renders luminous text onto a 512×256 canvas using four glow passes.
@@ -41,7 +30,7 @@ function makeGlowTexture(text, colorHex = 0x00eeff) {
   const hexStr = `#${colorHex.toString(16).padStart(6, "0")}`;
 
   let fontSize = 56;
-  const fontFace = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  const fontFace = (s) => `400 ${s}px "KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   ctx.font = fontFace(fontSize);
   while (ctx.measureText(text).width > 480 && fontSize > 22) {
     fontSize -= 2;
@@ -230,7 +219,7 @@ class SkyLyricSystem {
 
       // Auto-scale font size to fit long lyrics
       let fontSize = 70;
-      const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+      const font = (s) => `400 ${s}px "KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
       ctx.font = font(fontSize);
       while (ctx.measureText(text).width > 980 && fontSize > 20) {
         fontSize -= 5;

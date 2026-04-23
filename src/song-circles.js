@@ -323,20 +323,45 @@ class SongCircle {
     const n = this._n, pos = this._posArr;
     const used = new Uint8Array(n);
 
-    for (const p of pts) {
-      const tx = cx + p.lx * TEXT_W;
-      const tz = cz - p.ly * TEXT_H;
-      let best = -1, bestD2 = Infinity;
-      for (let i = 0; i < n; i++) {
-        if (used[i]) continue;
-        const dx = pos[i * 3] - tx, dz = pos[i * 3 + 2] - tz;
-        const d2 = dx * dx + dz * dz;
-        if (d2 < bestD2) { bestD2 = d2; best = i; }
+    // Sort world targets and particles by X so we can binary-search for each
+    // text point's nearest candidates — reduces O(n²) to O(n·W) where W=200.
+    const worldTargets = pts.map((p, idx) => ({
+      idx, tx: cx + p.lx * TEXT_W, tz: cz - p.ly * TEXT_H,
+    }));
+    worldTargets.sort((a, b) => a.tx - b.tx);
+
+    const particlesByX = Array.from({ length: n }, (_, i) => ({ idx: i, x: pos[i * 3] }));
+    particlesByX.sort((a, b) => a.x - b.x);
+
+    const W = 200; // search window around the binary-search landing point
+    for (const wt of worldTargets) {
+      const { tx, tz, idx } = wt;
+      const p = pts[idx];
+
+      // Binary search for the first particle with x >= tx
+      let lo = 0, hi = particlesByX.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (particlesByX[mid].x < tx) lo = mid + 1; else hi = mid;
       }
+
+      let best = -1, bestD2 = Infinity;
+      for (let fi = Math.max(0, lo - W); fi < Math.min(n, lo + W); fi++) {
+        const fIdx = particlesByX[fi].idx;
+        if (used[fIdx]) continue;
+        const dx = pos[fIdx * 3] - tx, dz = pos[fIdx * 3 + 2] - tz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD2) { bestD2 = d2; best = fIdx; }
+      }
+      // Fallback: any remaining unassigned particle
+      if (best < 0) {
+        for (const f of particlesByX) { if (!used[f.idx]) { best = f.idx; break; } }
+      }
+
       if (best >= 0) {
         used[best] = 1;
-        this._hasTarget[best]        = 1;
-        this._targets[best * 3]     = tx;
+        this._hasTarget[best]      = 1;
+        this._targets[best * 3]    = tx;
         this._targets[best * 3 + 1] = 0;
         this._targets[best * 3 + 2] = tz;
       }

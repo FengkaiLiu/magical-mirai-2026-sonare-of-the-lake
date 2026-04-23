@@ -89,8 +89,26 @@ const glowFrag = /* glsl */ `
 
 const _textCache = new Map();
 
-function sampleTextPoints(text, letterSpacing = "", maxPoints = MAX_SAMPLE_POINTS, outlineOnly = true) {
-  const cacheKey = `${text}::${letterSpacing}::${maxPoints}::${outlineOnly}`;
+// Pre-load custom fonts so they are available for canvas text sampling.
+// document.fonts.load() is async but completes well before the first phrase
+// is sampled (intro takes ~3 s; deferred phrases wait 2+ frames).
+document.fonts.load('400 60px "Caveat"');
+document.fonts.load('bold 60px "Caveat"');
+document.fonts.load('400 60px "KiwiMaru"');
+document.fonts.load('bold 60px "KiwiMaru"');
+
+const _DEFAULT_FONT_FAMILY = '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif';
+const _DEFAULT_FONT_WEIGHT = "bold";
+
+function sampleTextPoints(
+  text,
+  letterSpacing = "",
+  maxPoints = MAX_SAMPLE_POINTS,
+  outlineOnly = true,
+  fontFamily = _DEFAULT_FONT_FAMILY,
+  fontWeight = _DEFAULT_FONT_WEIGHT,
+) {
+  const cacheKey = `${text}::${letterSpacing}::${maxPoints}::${outlineOnly}::${fontFamily}::${fontWeight}`;
   if (_textCache.has(cacheKey)) return _textCache.get(cacheKey);
 
   const canvasW = 1024, canvasH = 128;
@@ -101,7 +119,7 @@ function sampleTextPoints(text, letterSpacing = "", maxPoints = MAX_SAMPLE_POINT
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  const font = (s) => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  const font = (s) => `${fontWeight} ${s}px ${fontFamily}`;
   let fontSize = 60;
   ctx.font = font(fontSize);
   ctx.letterSpacing = letterSpacing;
@@ -193,6 +211,8 @@ export class LyricFormation {
     const glowMax         = opts.glowMax         ?? 9.0;
     this._letterSpacing   = opts.letterSpacing   ?? "";
     this._outlineOnly     = opts.outlineOnly     ?? true;
+    this._fontFamily      = opts.fontFamily      ?? _DEFAULT_FONT_FAMILY;
+    this._fontWeight      = opts.fontWeight      ?? _DEFAULT_FONT_WEIGHT;
     this._particleCount   = particleCount;
 
     this.posArray   = new Float32Array(particleCount * 3);
@@ -214,7 +234,7 @@ export class LyricFormation {
     if (opts.skipGather) {
       const tw  = TEXT_WIDTH   * this._textScale;
       const fyr = FORM_Y_RANGE * this._textScale;
-      const pts2D = sampleTextPoints(text, this._letterSpacing, particleCount, this._outlineOnly);
+      const pts2D = sampleTextPoints(text, this._letterSpacing, particleCount, this._outlineOnly, this._fontFamily, this._fontWeight);
       skipGatherPts = pts2D.map(p => ({ lx: p.lx * tw, lz: -p.ly * fyr }));
     }
 
@@ -308,6 +328,8 @@ export class LyricFormation {
       opts.letterSpacing ?? "",
       opts.particleCount ?? MAX_SAMPLE_POINTS,
       opts.outlineOnly   ?? true,
+      opts.fontFamily    ?? _DEFAULT_FONT_FAMILY,
+      opts.fontWeight    ?? _DEFAULT_FONT_WEIGHT,
     );
   }
 
@@ -362,7 +384,7 @@ export class LyricFormation {
   _setPhrase(text) {
     const tw  = TEXT_WIDTH   * this._textScale;
     const fyr = FORM_Y_RANGE * this._textScale;
-    const points2D = sampleTextPoints(text, this._letterSpacing, this._particleCount, this._outlineOnly);
+    const points2D = sampleTextPoints(text, this._letterSpacing, this._particleCount, this._outlineOnly, this._fontFamily, this._fontWeight);
     this._textPointsLocal = points2D.map(p => ({
       lx: p.lx * tw,
       lz: -p.ly * fyr,

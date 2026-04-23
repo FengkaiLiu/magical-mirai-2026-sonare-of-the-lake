@@ -98,11 +98,13 @@ class ParticleTrail {
   }
 
   dispose() {
+    // All particles share the same BoxGeometry — dispose it once, not per-particle.
+    const sharedGeo = this.particles[0]?.mesh.geometry;
     for (const p of this.particles) {
       this.scene.remove(p.mesh);
       p.mesh.material.dispose();
-      p.mesh.geometry.dispose();
     }
+    sharedGeo?.dispose();
   }
 }
 
@@ -224,8 +226,9 @@ export class Boat {
     this._prevQuat = new CANNON.Quaternion(0, 0, 0, 1);
 
     // === Pre-allocated reusables (avoid per-frame heap allocation) ===
-    this._fwdVec  = new CANNON.Vec3(0, 0, -1);  // reused in preStep + trail branch
-    this._interpQ = new CANNON.Quaternion();      // reused in update interpolation
+    this._fwdVec    = new CANNON.Vec3(0, 0, -1);  // reused in preStep + trail branch
+    this._interpQ   = new CANNON.Quaternion();     // reused in update interpolation
+    this._autoFwdVec = new CANNON.Vec3(0, 0, -1); // reused in _autoTarget heading calc
 
     // Auto-drive target (set by startEntrance, cleared on arrival)
     this._autoTarget = null;
@@ -280,10 +283,10 @@ export class Boat {
       } else {
         // Desired heading toward target
         const desiredAngle = Math.atan2(-dx, -dz); // angle in XZ, -Z is forward
-        // Current heading from quaternion
-        const fwdLocal = new CANNON.Vec3(0, 0, -1);
-        this.body.quaternion.vmult(fwdLocal, fwdLocal);
-        const currentAngle = Math.atan2(-fwdLocal.x, -fwdLocal.z);
+        // Current heading from quaternion (reuse pre-allocated _autoFwdVec)
+        this._autoFwdVec.set(0, 0, -1);
+        this.body.quaternion.vmult(this._autoFwdVec, this._autoFwdVec);
+        const currentAngle = Math.atan2(-this._autoFwdVec.x, -this._autoFwdVec.z);
         // Shortest-path angular error
         let err = desiredAngle - currentAngle;
         while (err >  Math.PI) err -= 2 * Math.PI;
