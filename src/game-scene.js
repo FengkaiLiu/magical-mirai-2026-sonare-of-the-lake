@@ -289,9 +289,26 @@ export class GameScene {
     const song = SONGS[songIndex];
     const pre  = this._preloadedSongs[songIndex];
 
+    // Show loading overlay — hidden when onPlay fires (or forced away by fallback timer).
+    const overlayEl = document.getElementById("overlay");
+    if (overlayEl) overlayEl.classList.remove("hidden");
+
     // Safety: if stagger delay hasn't fired yet (e.g. user somehow selects song 5 in < 1.5 s),
     // start preloading now synchronously so pre.audioEl exists before we use it below.
     if (!pre.player) this._startPreload(song, pre);
+
+    // If the preloaded player silently failed (e.g. API rate-limit, network error), discard it
+    // and create a fresh one so the onTimerReady path in addListener below can still fire.
+    if (pre.player && !pre.timerReady && !pre.video) {
+      console.warn("[GameScene] Preload appears stalled — restarting player for:", song.title);
+      pre.player.dispose();
+      pre.player     = null;
+      pre.audioEl    = null;
+      pre.timerReady = false;
+      pre.video      = null;
+      pre.managed    = false;
+      this._startPreload(song, pre);
+    }
 
     // Update shared systems in-place — no reconstruction
     this.water.setColors(song.theme.water, song.theme.deep);
@@ -448,13 +465,18 @@ export class GameScene {
 
     // Fallback timer: if onPlay hasn't fired within 8 s (e.g. AudioContext stayed
     // suspended, or the preloaded player silently failed), nudge the AudioContext
-    // and try requestPlay() again so the user isn't stuck on silence.
+    // and try requestPlay() again. Force-hide the overlay so the user isn't stuck
+    // on the loading screen regardless of whether audio eventually starts.
     this._playTimeout = setTimeout(() => {
-      if (this._disposed || this._playbackStarted || this._state !== "play") return;
-      console.warn("[GameScene] Playback start timeout — forcing AudioContext resume");
-      this.audioContext?.resume().catch(() => {});
-      if (!this._managed) {
-        try { this.player?.requestPlay(); } catch (e) {}
+      if (this._disposed || this._state !== "play") return;
+      if (!this._playbackStarted) {
+        console.warn("[GameScene] Playback start timeout — forcing AudioContext resume");
+        this.audioContext?.resume().catch(() => {});
+        if (!this._managed) {
+          try { this.player?.requestPlay(); } catch (e) {}
+        }
+        // Unblock the UI regardless — don't leave user on a black loading screen.
+        document.getElementById("overlay")?.classList.add("hidden");
       }
     }, 8000);
 

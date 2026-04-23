@@ -25,11 +25,14 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+button, input, select, textarea { font-family: inherit; }
 
 body {
   background: #0a1a2e;
   overflow: hidden;
-  font-family: "KiwiMaru", "M PLUS Rounded 1c", "Yu Gothic", "Hiragino Sans", sans-serif;
+  /* Caveat covers Latin/ASCII; KiwiMaru handles Japanese glyphs as fallback.
+     All UI elements inherit this stack automatically — no per-element overrides needed. */
+  font-family: 'Caveat', 'KiwiMaru', 'M PLUS Rounded 1c', 'Yu Gothic', 'Hiragino Sans', sans-serif;
 }
 
 #app canvas {
@@ -142,7 +145,6 @@ body {
   padding: 0.65rem 2.8rem;
   font-size: 1.05rem;
   font-weight: 700;
-  font-family: "M PLUS Rounded 1c", "Yu Gothic", sans-serif;
   letter-spacing: 0.12em;
   color: #fff;
   background: rgba(32, 160, 200, 0.25);

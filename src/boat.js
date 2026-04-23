@@ -28,6 +28,7 @@ class ParticleTrail {
 
     for (let i = 0; i < this.maxParticles; i++) {
       const mesh = new THREE.Mesh(geo, mat.clone());
+      mesh.renderOrder = 1; // render after water-decal lyrics (renderOrder=0)
       mesh.position.y = -999;
       this.scene.add(mesh);
       this.particles.push({
@@ -416,6 +417,14 @@ export class Boat {
     gltfScene.rotation.y = rotationY;
     gltfScene.position.set(0, 0, 0);
     this.mesh.add(gltfScene);
+
+    // Elevate all boat meshes to renderOrder=1 so they always paint over water-decal
+    // lyrics (renderOrder=0) in the transparent pass, regardless of distance sort.
+    // THREE.js transparent sorting happens within the same renderOrder bucket only;
+    // a higher bucket always renders after a lower one.
+    gltfScene.traverse(child => {
+      if (child.isMesh) child.renderOrder = 1;
+    });
 
     // If there were primitive children (original boat), hide them
     this.mesh.children.forEach(child => {

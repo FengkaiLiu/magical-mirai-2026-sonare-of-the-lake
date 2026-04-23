@@ -6,6 +6,10 @@ import * as THREE from "three";
 import { waveHeight } from "./boat.js";
 import { SONGS } from "./songs.js";
 
+// Pre-load fonts so canvas text sampling uses the correct glyphs.
+document.fonts.load('bold 60px "Caveat"');
+document.fonts.load('400 60px "KiwiMaru"');
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const COUNT         = 1200;
@@ -105,7 +109,7 @@ function sampleTextPoints(text, count) {
   ctx.fillRect(0, 0, cw, ch);
 
   let sz = 72;
-  const fnt = s => `bold ${s}px "M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  const fnt = s => `bold ${s}px "Caveat","KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   ctx.font = fnt(sz);
   while (ctx.measureText(text).width > cw * 0.88 && sz > 14) { sz -= 2; ctx.font = fnt(sz); }
   ctx.fillStyle = "#fff";
@@ -149,6 +153,16 @@ class SongCircle {
     this._white = new THREE.Color(1.3, 1.3, 1.3);
     this._tmpCol1 = new THREE.Color();
     this._ringFade = 0; // independent ring opacity tracker for titleFade dissolve
+
+    // ── Smooth visual transition helpers ─────────────────────────────────
+    // These smoothly lerp each frame so state switches never snap visually.
+    this._pulseEnv     = 0;    // particle pulse envelope [0..1]
+    this._pulseEnvTgt  = 0;
+    this._compactBlend = 0;    // orbit compaction [0=loose full-radius, 1=tight 0.42x]
+    this._compactTgt   = 0;
+    this._ringOpTgt    = 0;    // ring opacity target
+    this._ringScTgt    = 1.0;  // ring scale target
+    this._ringPuTgt    = 0;    // ring pulse-tint target
 
     const n = COUNT;
     this._n          = n;
@@ -393,6 +407,30 @@ class SongCircle {
         (0.6 + 0.4 * Math.abs(Math.sin(elapsed * 0.3 + this._orbitPhase[i]))) * dt;
     }
 
+    // ── Smooth transition envelopes ───────────────────────────────────────
+    // Lerp pulse envelope and orbit compaction toward per-state targets so that
+    // any state change produces a gradual visual transition instead of a snap.
+    const _lrp = (a, b, s) => a + (b - a) * Math.min(1, dt * s);
+    this._pulseEnv     = _lrp(this._pulseEnv,     this._pulseEnvTgt,  4.5);
+    this._compactBlend = _lrp(this._compactBlend, this._compactTgt,   3.5);
+
+    // Smooth ring visual params for all non-terminal states.
+    // Terminal states (titleFade, scattered, selectedScatter) manage ring directly.
+    const _isTerminal = this._state === "titleFade"
+                     || this._state === "scattered"
+                     || this._state === "selectedScatter";
+    if (!_isTerminal) {
+      const rf = Math.min(1, dt * 7);
+      const ru = this._ring1.uniforms;
+      ru.uOpacity.value += (this._ringOpTgt - ru.uOpacity.value) * rf;
+      ru.uPulse.value   += (this._ringPuTgt - ru.uPulse.value)   * rf;
+      const cs = this._ring1.mesh.scale.x;
+      const ns = cs + (this._ringScTgt - cs) * rf;
+      this._ring1.mesh.scale.set(ns, 1, ns);
+      this._tmpCol1.copy(this._songCol).lerp(this._white, ru.uPulse.value * 0.55);
+      ru.uColor.value.copy(this._tmpCol1);
+    }
+
     if (this._state === "gathering") {
       this._alphaMul = Math.min(1, this._alphaMul + dt * 0.55);
       this._uniforms.uAlphaMul.value = this._alphaMul;
@@ -428,7 +466,11 @@ class SongCircle {
         this._uniforms.uColor.value.copy(this._songCol);
         this._state = "idle"; this._stateTime = 0;
       }
-      this._setRingState(Math.min(0.7, this._stateTime * 0.12));
+      this._pulseEnvTgt = 0;
+      this._compactTgt  = 0;
+      this._ringOpTgt   = Math.min(0.7, this._stateTime * 0.12);
+      this._ringScTgt   = 1.0;
+      this._ringPuTgt   = 0;
 
     } else if (this._state === "idle") {
       for (let i = 0; i < n; i++) {
@@ -440,13 +482,21 @@ class SongCircle {
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
         pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
       }
+      this._pulseEnvTgt = 1.0;
+      this._compactTgt  = 0;
       const pulseRaw = 0.5 + 0.5 * Math.sin(elapsed * 2.0);
-      this._uniforms.uPulse.value = pulseRaw * 0.32;
+      this._uniforms.uPulse.value = pulseRaw * 0.32 * this._pulseEnv;
       const breathe = 0.55 + 0.18 * Math.sin(elapsed * 1.7) + 0.07 * Math.sin(elapsed * 4.3);
       const rScale  = 1.00 + 0.06 * Math.sin(elapsed * 1.7) + 0.02 * Math.sin(elapsed * 3.1);
-      this._setRingState(breathe, rScale, pulseRaw * 0.25);
+      this._ringOpTgt = breathe;
+      this._ringScTgt = rScale;
+      this._ringPuTgt = pulseRaw * 0.25;
 
     } else if (this._state === "activating") {
+      this._pulseEnvTgt = 1.0;
+      this._compactTgt  = 1.0;
+      // orbitMul smoothly collapses from full radius (1.0) to tight (0.42)
+      const orbitMul = 1.0 - 0.58 * this._compactBlend;
       for (let i = 0; i < n; i++) {
         const i3 = i * 3;
         if (this._hasTarget[i]) {
@@ -456,7 +506,7 @@ class SongCircle {
           if (d > 0.04) { const m = Math.min(FORM_SPEED * dt, d); pos[i3] += (dx/d)*m; pos[i3+2] += (dz/d)*m; }
           else           { pos[i3] = tx; pos[i3 + 2] = tz; }
         } else {
-          const r = this._orbitR[i] * 0.42;
+          const r = this._orbitR[i] * orbitMul;
           pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
           pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
         }
@@ -464,12 +514,16 @@ class SongCircle {
       }
       if (this._stateTime > 1.4) { this._state = "active"; this._stateTime = 0; }
       const aPulse = Math.abs(Math.sin(elapsed * 4.5));
-      const pulse  = 0.65 + 0.30 * aPulse;
-      const rScale = 1.06 + 0.04 * Math.sin(elapsed * 4.5);
-      this._setRingState(pulse, rScale, aPulse * 0.5);
-      this._uniforms.uAlphaMul.value = Math.min(1.15, this._alphaMul * 1.15);
+      this._uniforms.uPulse.value = (0.65 + 0.30 * aPulse) * this._pulseEnv;
+      this._ringOpTgt = 0.65 + 0.30 * aPulse;
+      this._ringScTgt = 1.06 + 0.04 * Math.sin(elapsed * 4.5);
+      this._ringPuTgt = aPulse * 0.5;
+      this._uniforms.uAlphaMul.value = Math.min(1.15, this._alphaMul * (1.0 + 0.15 * this._pulseEnv));
 
     } else if (this._state === "active") {
+      this._pulseEnvTgt = 1.0;
+      this._compactTgt  = 1.0;
+      const orbitMul = 1.0 - 0.58 * this._compactBlend;
       for (let i = 0; i < n; i++) {
         const i3 = i * 3;
         if (this._hasTarget[i]) {
@@ -479,20 +533,22 @@ class SongCircle {
           pos[i3 + 1] = waveHeight(tx, tz, elapsed) + 0.12;
           pos[i3 + 2] = tz + Math.cos(elapsed * 1.6 + i * 0.07) * shimmer;
         } else {
-          const r = this._orbitR[i] * 0.42;
+          const r = this._orbitR[i] * orbitMul;
           pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
           pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
           pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
         }
       }
       const rawPulse = Math.abs(Math.sin(elapsed * 5.0));
-      this._uniforms.uPulse.value = rawPulse * 0.85;
-      const pulse  = 0.55 + 0.45 * rawPulse;
-      const rScale = 1.10 + 0.06 * Math.sin(elapsed * 5.0);
-      this._setRingState(pulse, rScale, rawPulse * 0.7);
-      this._uniforms.uAlphaMul.value = Math.min(1.3, this._alphaMul * 1.3);
+      this._uniforms.uPulse.value = rawPulse * 0.85 * this._pulseEnv;
+      this._ringOpTgt = 0.55 + 0.45 * rawPulse;
+      this._ringScTgt = 1.10 + 0.06 * Math.sin(elapsed * 5.0);
+      this._ringPuTgt = rawPulse * 0.7;
+      this._uniforms.uAlphaMul.value = Math.min(1.3, this._alphaMul * (1.0 + 0.3 * this._pulseEnv));
 
     } else if (this._state === "returning") {
+      this._pulseEnvTgt = 0;
+      this._compactTgt  = 0;
       let allClose = true;
       for (let i = 0; i < n; i++) {
         const i3 = i * 3;
@@ -511,11 +567,13 @@ class SongCircle {
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
       }
       if (allClose) { this._state = "idle"; this._stateTime = 0; }
-      const t      = Math.min(1, this._stateTime / 0.8);
+      // Pulse and alpha smoothly decay via _pulseEnv (target = 0 above)
+      this._uniforms.uPulse.value = this._pulseEnv * 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 3.0));
       const breathe = 0.58 + 0.22 * Math.sin(elapsed * 1.7);
-      const rScale  = (1.08 * (1 - t) + 1.0 * t) + 0.04 * Math.sin(elapsed * 1.7) * t;
-      this._setRingState(breathe, rScale);
-      this._uniforms.uAlphaMul.value = this._alphaMul;
+      this._ringOpTgt = breathe;
+      this._ringScTgt = 1.0 + 0.04 * Math.sin(elapsed * 1.7);
+      this._ringPuTgt = this._pulseEnv * 0.15;
+      this._uniforms.uAlphaMul.value = this._alphaMul * (1.0 + 0.3 * this._pulseEnv);
 
     } else if (this._state === "scattered") {
       this._alphaMul = Math.max(0, this._alphaMul - dt * 0.6);

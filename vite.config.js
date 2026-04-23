@@ -11,7 +11,7 @@ export default defineConfig({
         // This chunk is content-hashed and cached long-term by browsers;
         // only the smaller app chunk needs to be re-fetched on each deploy.
         manualChunks: {
-          vendor: ["three", "cannon-es", "gsap", "textalive-app-api"],
+          vendor: ["three", "cannon-es", "gsap", "textalive-app-api", "troika-three-text"],
         },
       },
     },
