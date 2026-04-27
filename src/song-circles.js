@@ -15,8 +15,8 @@ document.fonts.load('400 60px "KiwiMaru"');
 const COUNT         = 1200;
 const CIRCLE_R      = 2.2;
 const ORBIT_SPEED   = 0.38;
-const TEXT_W        = 26.0;
-const TEXT_H        = 5.5;
+const TEXT_W        = 34.0;
+const TEXT_H        = 7.2;
 const TEXT_FORWARD  = -4.0;
 const GATHER_SPEED  = 5.0;
 const FORM_SPEED    = 9.0;
@@ -28,14 +28,12 @@ const HINT_OFFSET   = 3.5;
 const _vert = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
-  uniform  float uTime;
   uniform  float uPulse;
   varying  float vAlpha;
   void main() {
     vAlpha = aAlpha;
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    float localPulse = sin(uTime * 2.1 + position.x * 2.8 + position.z * 1.9);
-    float pulse = 1.0 + 0.13 * localPulse + uPulse * 0.28 * (0.5 + 0.5 * localPulse);
+    float pulse = 1.0 + uPulse * 0.28;
     gl_PointSize = aSize * pulse * (300.0 / -mv.z);
     gl_Position  = projectionMatrix * mv;
   }
@@ -198,7 +196,6 @@ class SongCircle {
     geo.setAttribute("aAlpha",   new THREE.BufferAttribute(this._alphaArr, 1));
 
     this._uniforms = {
-      uTime:     { value: 0 },
       uColor:    { value: col.clone() },
       uAlphaMul: { value: 0 },
       uPulse:    { value: 0 },
@@ -395,7 +392,6 @@ class SongCircle {
   update(dt, elapsed) {
     if (this._disposed || this._state === "waiting") return;
 
-    this._uniforms.uTime.value       = elapsed;
     this._ring1.uniforms.uTime.value = elapsed;
     this._stateTime += dt;
 
@@ -482,15 +478,15 @@ class SongCircle {
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
         pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
       }
-      this._pulseEnvTgt = 1.0;
+      this._pulseEnvTgt = 0;
       this._compactTgt  = 0;
-      const pulseRaw = 0.5 + 0.5 * Math.sin(elapsed * 2.0);
-      this._uniforms.uPulse.value = pulseRaw * 0.32 * this._pulseEnv;
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
       const breathe = 0.55 + 0.18 * Math.sin(elapsed * 1.7) + 0.07 * Math.sin(elapsed * 4.3);
       const rScale  = 1.00 + 0.06 * Math.sin(elapsed * 1.7) + 0.02 * Math.sin(elapsed * 3.1);
       this._ringOpTgt = breathe;
       this._ringScTgt = rScale;
-      this._ringPuTgt = pulseRaw * 0.25;
+      this._ringPuTgt = 0;
 
     } else if (this._state === "activating") {
       this._pulseEnvTgt = 1.0;
@@ -513,12 +509,11 @@ class SongCircle {
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
       }
       if (this._stateTime > 1.4) { this._state = "active"; this._stateTime = 0; }
-      const aPulse = Math.abs(Math.sin(elapsed * 4.5));
-      this._uniforms.uPulse.value = (0.65 + 0.30 * aPulse) * this._pulseEnv;
-      this._ringOpTgt = 0.65 + 0.30 * aPulse;
-      this._ringScTgt = 1.06 + 0.04 * Math.sin(elapsed * 4.5);
-      this._ringPuTgt = aPulse * 0.5;
-      this._uniforms.uAlphaMul.value = Math.min(1.15, this._alphaMul * (1.0 + 0.15 * this._pulseEnv));
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      this._ringOpTgt = 0.75;
+      this._ringScTgt = 1.06;
+      this._ringPuTgt = 0.3;
 
     } else if (this._state === "active") {
       this._pulseEnvTgt = 1.0;
@@ -527,11 +522,9 @@ class SongCircle {
       for (let i = 0; i < n; i++) {
         const i3 = i * 3;
         if (this._hasTarget[i]) {
-          const tx = this._targets[i3], tz = this._targets[i3 + 2];
-          const shimmer = 0.03 + 0.02 * Math.sin(elapsed * 3.2 + i * 0.08);
-          pos[i3]     = tx + Math.sin(elapsed * 2.1 + i * 0.05) * shimmer;
-          pos[i3 + 1] = waveHeight(tx, tz, elapsed) + 0.12;
-          pos[i3 + 2] = tz + Math.cos(elapsed * 1.6 + i * 0.07) * shimmer;
+          pos[i3]     = this._targets[i3];
+          pos[i3 + 1] = waveHeight(this._targets[i3], this._targets[i3 + 2], elapsed) + 0.12;
+          pos[i3 + 2] = this._targets[i3 + 2];
         } else {
           const r = this._orbitR[i] * orbitMul;
           pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
@@ -539,12 +532,11 @@ class SongCircle {
           pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
         }
       }
-      const rawPulse = Math.abs(Math.sin(elapsed * 5.0));
-      this._uniforms.uPulse.value = rawPulse * 0.85 * this._pulseEnv;
-      this._ringOpTgt = 0.55 + 0.45 * rawPulse;
-      this._ringScTgt = 1.10 + 0.06 * Math.sin(elapsed * 5.0);
-      this._ringPuTgt = rawPulse * 0.7;
-      this._uniforms.uAlphaMul.value = Math.min(1.3, this._alphaMul * (1.0 + 0.3 * this._pulseEnv));
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      this._ringOpTgt = 0.80;
+      this._ringScTgt = 1.10;
+      this._ringPuTgt = 0.4;
 
     } else if (this._state === "returning") {
       this._pulseEnvTgt = 0;
@@ -567,13 +559,12 @@ class SongCircle {
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
       }
       if (allClose) { this._state = "idle"; this._stateTime = 0; }
-      // Pulse and alpha smoothly decay via _pulseEnv (target = 0 above)
-      this._uniforms.uPulse.value = this._pulseEnv * 0.4 * (0.5 + 0.5 * Math.sin(elapsed * 3.0));
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
       const breathe = 0.58 + 0.22 * Math.sin(elapsed * 1.7);
       this._ringOpTgt = breathe;
       this._ringScTgt = 1.0 + 0.04 * Math.sin(elapsed * 1.7);
-      this._ringPuTgt = this._pulseEnv * 0.15;
-      this._uniforms.uAlphaMul.value = this._alphaMul * (1.0 + 0.3 * this._pulseEnv);
+      this._ringPuTgt = 0;
 
     } else if (this._state === "scattered") {
       this._alphaMul = Math.max(0, this._alphaMul - dt * 0.6);
