@@ -78,7 +78,6 @@ class WaterDecal {
     this.x = boatPos.x + Math.cos(angle) * dist;
     this.z = boatPos.z + Math.sin(angle) * dist;
 
-    // Drift slowly outward
     this.vx = Math.cos(angle) * (0.3 + Math.random() * 0.4);
     this.vz = Math.sin(angle) * (0.3 + Math.random() * 0.4);
 
@@ -141,7 +140,6 @@ class WaterDecal {
     this.age += dt;
     if (this.age >= this.lifetime) { this.alive = false; return; }
 
-    // Drift outward
     this.x += this.vx * dt;
     this.z += this.vz * dt;
 

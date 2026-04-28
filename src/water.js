@@ -138,15 +138,7 @@ export class Water {
     // ShaderMaterial does not auto-receive shadows without manual shadow map sampling
     engine.scene.add(this.mesh);
 
-    this.analyser = null;
-    this.audioData = null;
-
     engine.addUpdatable(this);
-  }
-
-  setAudioAnalyser(analyser, data) {
-    this.analyser = analyser;
-    this.audioData = data;
   }
 
   setColors(shallow, deep) {
@@ -157,29 +149,13 @@ export class Water {
   update(dt, elapsed) {
     this.uniforms.uTime.value = elapsed;
     this.uniforms.uCamPos.value.copy(this.camera.position);
-    
-    let energy = 0;
-    if (this.analyser) {
-      this.analyser.getByteFrequencyData(this.audioData);
-      // Average the lowest 5 bins (bass)
-      let sum = 0;
-      for (let i = 0; i < 5; i++) {
-        sum += this.audioData[i];
-      }
-      energy = (sum / 5) / 255.0; // 0.0 to 1.0
-      // Apply simple exponential curve so only hard hits register highly
-      energy = Math.pow(Math.max(0, energy - 0.4) / 0.6, 2.0);
-    }
-    
-    // Smooth out energy to avoid visual glitching/flicker
-    if (!this.smoothedEnergy) this.smoothedEnergy = 0;
-    this.smoothedEnergy += (energy - this.smoothedEnergy) * dt * 15.0;
-    
-    this.uniforms.uEnergy.value = this.smoothedEnergy;
+
+    const energy = this.engine.env?.smoothedEnergy ?? 0;
+    this.uniforms.uEnergy.value = energy;
 
     // Advance cloud offset — drives shadow drift
-    this.uniforms.uCloudOffset.value.x = elapsed * (0.008 + this.smoothedEnergy * 0.01);
-    this.uniforms.uCloudOffset.value.y = elapsed * (0.005 + this.smoothedEnergy * 0.01);
+    this.uniforms.uCloudOffset.value.x = elapsed * (0.008 + energy * 0.01);
+    this.uniforms.uCloudOffset.value.y = elapsed * (0.005 + energy * 0.01);
   }
 
   dispose() {

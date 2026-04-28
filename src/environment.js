@@ -182,6 +182,10 @@ export class Environment {
     scene.add(this.particles);
     this._sceneObjects.push(this.particles);
 
+    this.smoothedEnergy = 0;
+    this.fastEnergy     = 0;
+    this.coralPulse     = 0;
+
     engine.addUpdatable(this);
   }
 
@@ -197,7 +201,6 @@ export class Environment {
   }
 
   update(dt, elapsed) {
-    // Process audio energy
     let energy = 0;
     if (this.analyser) {
       this.analyser.getByteFrequencyData(this.audioData);
@@ -207,19 +210,15 @@ export class Environment {
       energy = Math.pow(Math.max(0, energy - 0.4) / 0.6, 2.0);
     }
 
-    if (!this.smoothedEnergy) this.smoothedEnergy = 0;
     this.smoothedEnergy += (energy - this.smoothedEnergy) * dt * 15.0;
 
     // Beat detection for coral pulse: fast energy tracks raw hits, spikes pulse when beat arrives
-    if (!this.fastEnergy)  this.fastEnergy  = 0;
-    if (!this.coralPulse)  this.coralPulse  = 0;
     this.fastEnergy += (energy - this.fastEnergy) * Math.min(1, dt * 30.0);
     if (this.fastEnergy > this.smoothedEnergy + 0.18 && this.fastEnergy > 0.12) {
       this.coralPulse = 1.0; // trigger on beat transient
     }
     this.coralPulse = Math.max(0, this.coralPulse - dt * 3.5); // decay ~0.3 s
 
-    // Update coral emissive glow
     if (this.coralMeshes.length > 0) {
       const coralIntensity = 0.3 + this.smoothedEnergy * 0.6 + this.coralPulse * 2.2;
       for (const { materials } of this.coralMeshes) {
@@ -227,25 +226,20 @@ export class Environment {
       }
     }
 
-    // React to audio!
     this.sunLight.intensity = this.baseSunIntensity + this.smoothedEnergy * 1.5;
     const haloScale = 1.0 + this.smoothedEnergy * 0.8;
     this.halo.scale.set(haloScale, haloScale, haloScale);
 
-    // Sun bob
     this.sun.position.y = 55 + Math.sin(elapsed * 0.15) * 0.05;
     this.halo.position.copy(this.sun.position);
 
-    // Cloud linear drift (matches water shader direction)
     for (const c of this.clouds) {
       c.sprite.position.x += c.driftX * dt;
       c.sprite.position.z += c.driftZ * dt;
-      // Wrap clouds to stay in visible range
       if (c.sprite.position.x > 120) c.sprite.position.x -= 240;
       if (c.sprite.position.z > 120) c.sprite.position.z -= 240;
     }
 
-    // Particles rise and reset (faster with energy)
     const p = this.particles.geometry.attributes.position.array;
     const v = this.particleVel;
     const speedMultiplier = 1.0 + this.smoothedEnergy * 5.0;

@@ -9,7 +9,7 @@
 
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { preloadGLTF } from "./asset-cache.js";
 
 class ParticleTrail {
   constructor(engine) {
@@ -41,7 +41,6 @@ class ParticleTrail {
   spawn(pos, forward, speed) {
     if (speed < 0.5) return;
 
-    // Spawn in pairs (Left and Right)
     for (const side of [-1, 1]) {
       const p = this.particles[this.poolIndex];
       this.poolIndex = (this.poolIndex + 1) % this.maxParticles;
@@ -77,21 +76,18 @@ class ParticleTrail {
 
     for (const p of this.particles) {
       if (p.life > 0) {
-        // Drift
         p.mesh.position.x += p.vx * dt;
         p.mesh.position.z += p.vz * dt;
-        
+
         // Stick to the waves!
         const wh = waveHeight(p.mesh.position.x, p.mesh.position.z, elapsed, energy);
         p.mesh.position.y = wh + 0.02;
 
-        // Fade out
         p.life -= dt * 1.0;
         if (p.life < 0) p.life = 0;
-        
+
         p.mesh.material.opacity = p.life * 0.7;
-        
-        // Shrink slightly as it fades
+
         const s = p.mesh.scale.x * 0.98;
         p.mesh.scale.set(s, s, s);
       }
@@ -145,70 +141,9 @@ export class Boat {
     // === Three.js mesh ===
     this.mesh = new THREE.Group();
 
-    /* --- Original Boat Geometry (Commented out) ---
-    const hullMat = new THREE.MeshLambertMaterial({ color: 0xc08040 });
-
-    const secs = [
-      { z: -0.70, hw: 0.000, d: 0.000 },
-      { z: -0.35, hw: 0.200, d: 0.200 },
-      { z: 0.00, hw: 0.300, d: 0.260 },
-      { z: 0.35, hw: 0.275, d: 0.220 },
-      { z: 0.65, hw: 0.225, d: 0.160 },
-    ];
-    const verts = [];
-    verts.push(0, 0, secs[0].z);
-    for (let i = 1; i <= 4; i++) {
-      const s = secs[i];
-      verts.push(-s.hw, 0, s.z);
-      verts.push(s.hw, 0, s.z);
-      verts.push(0, -s.d, s.z);
-    }
-    const idx = [];
-    idx.push(0, 1, 2);
-    idx.push(0, 3, 1);
-    idx.push(0, 2, 3);
-    const bases = [1, 4, 7, 10];
-    for (let i = 0; i < 3; i++) {
-      const pP = bases[i], pS = pP + 1, pK = pP + 2;
-      const cP = bases[i + 1], cS = cP + 1, cK = cP + 2;
-      idx.push(pP, pK, cP, cP, pK, cK);
-      idx.push(pS, cS, pK, cS, cK, pK);
-      idx.push(pP, cP, pS, cP, cS, pS);
-    }
-    idx.push(10, 12, 11);
-    const hullGeo = new THREE.BufferGeometry();
-    hullGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(verts), 3));
-    hullGeo.setIndex(idx);
-    hullGeo.computeVertexNormals();
-    const hull = new THREE.Mesh(hullGeo, hullMat);
-    hull.castShadow = true;
-    this.mesh.add(hull);
-
-    const mast = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.025, 0.025, 0.9),
-      new THREE.MeshLambertMaterial({ color: 0x6b5030 })
-    );
-    mast.position.set(0, 0.55, -0.05);
-    this.mesh.add(mast);
-
-    const sailGeo = new THREE.BufferGeometry();
-    sailGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 0, 0.55, 0, 0.35, 0.1, 0]), 3));
-    sailGeo.computeVertexNormals();
-    const sail = new THREE.Mesh(sailGeo, new THREE.MeshLambertMaterial({
-      color: 0xeeeedd, side: THREE.DoubleSide, transparent: true, opacity: 0.9,
-    }));
-    sail.position.set(0.02, 0.15, -0.05);
-    this.mesh.add(sail);
-    --- End Original Geometry --- */
-
-    // Load Miku Boat (GLTF Model)
-    const loader = new GLTFLoader();
-    // Path relative to public root
-    loader.load("models/miku-boat.glb", (gltf) => {
-      this.setModel(gltf.scene, { offsetZ: 0.3 });
-    }, undefined, (err) => {
-      console.error("Failed to load miku-boat.glb", err);
-    });
+    preloadGLTF("models/miku-boat.glb")
+      .then(gltf => this.setModel(gltf.scene.clone(true)))
+      .catch(err => console.error("Failed to load miku-boat.glb", err));
 
     // Lantern remains (for glow + pulse)
     const lantern = new THREE.PointLight(0xffcc55, 0.8, 8);
@@ -398,8 +333,7 @@ export class Boat {
   }
 
   getPosition() {
-    // Return interpolated mesh position so the camera follows smoothly
-    return this.mesh.position.clone();
+    return this.mesh.position;
   }
 
   getSpeed() {

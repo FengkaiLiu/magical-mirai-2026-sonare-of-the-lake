@@ -222,11 +222,7 @@ export class GameScene {
     const song = SONGS[songIndex];
 
     // Scatter all circles; selected circle gets dramatic title-dissolve effect
-    const selectedIdx = this.songCircles._activeIdx;
-    for (let i = 0; i < this.songCircles._circles.length; i++) {
-      if (i === selectedIdx) this.songCircles._circles[i].triggerTitleFade();
-      else                   this.songCircles._circles[i].triggerScatter();
-    }
+    this.songCircles.triggerSelection();
 
     // Smooth water + sky crossfade to song theme (2.5 s)
     this._tweenToTheme(song.theme, 2.5);
@@ -362,7 +358,6 @@ export class GameScene {
       source.connect(this.analyser);
       this.analyser.connect(this.audioContext.destination);
       this.env.setAudioAnalyser(this.analyser, this.audioData);
-      this.water.setAudioAnalyser(this.analyser, this.audioData);
     } catch (e) {
       console.warn("AudioContext setup failed — audio reactivity disabled.", e);
     }

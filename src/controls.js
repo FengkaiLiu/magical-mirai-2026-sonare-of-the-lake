@@ -49,9 +49,6 @@ export class Controls {
 
     window.addEventListener("keydown", this._onKeyDown);
     window.addEventListener("keyup", this._onKeyUp);
-
-    // TODO: タッチ仮想ジョイスティック
-    // TODO: Gamepad API
   }
 
   /**

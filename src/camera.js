@@ -38,6 +38,14 @@ export class CameraController {
     this._revealTransDur     = 1.5;  // seconds to ramp smoothing from dive-speed to normal
     this.gsapOverride        = false; // when true, GSAP owns the camera — skip all controller updates
 
+    // Pre-allocated scratch vectors — reused each frame to avoid per-call heap allocation
+    this._goalPos      = new THREE.Vector3();
+    this._goalLook     = new THREE.Vector3();
+    this._diveGoalPos  = new THREE.Vector3();
+    this._diveGoalLook = new THREE.Vector3();
+    this._introLockPos = new THREE.Vector3(0, 90, 0);
+    this._zeroVec      = new THREE.Vector3(0, 0, 0);
+
     // Start at the appropriate position — overhead for intro, boat-follow for direct play
     if (skipIntro) {
       this.currentPos.set(0, this.height, this.distance);
@@ -91,8 +99,8 @@ export class CameraController {
     // ── State 1: Intro — camera locked overhead ────────────────────
     if (this.isIntro) {
       const alpha = 1 - Math.pow(1 - 0.06, dt * 60);
-      this.currentPos.lerp(new THREE.Vector3(0, 90, 0), alpha);
-      this.currentLook.lerp(new THREE.Vector3(0, 0, 0), alpha);
+      this.currentPos.lerp(this._introLockPos, alpha);
+      this.currentLook.lerp(this._zeroVec, alpha);
       this.camera.position.copy(this.currentPos);
       this.camera.lookAt(this.currentLook);
       return;
@@ -113,11 +121,11 @@ export class CameraController {
       this.camera.updateProjectionMatrix();
 
       // Fixed landing target: where the camera sits when boat is at origin
-      const diveGoalPos  = new THREE.Vector3(0, this.height, this.distance);
-      const diveGoalLook = new THREE.Vector3(0, 0, -this.lookAhead);
+      this._diveGoalPos.set(0, this.height, this.distance);
+      this._diveGoalLook.set(0, 0, -this.lookAhead);
       const alpha = 1 - Math.pow(1 - 0.02, dt * 60);
-      this.currentPos.lerp(diveGoalPos, alpha);
-      this.currentLook.lerp(diveGoalLook, alpha);
+      this.currentPos.lerp(this._diveGoalPos, alpha);
+      this.currentLook.lerp(this._diveGoalLook, alpha);
 
       this.camera.position.copy(this.currentPos);
       this.camera.lookAt(this.currentLook);
@@ -156,22 +164,12 @@ export class CameraController {
     const t = this._revealTransition / this._revealTransDur;
     const easedT = t * t * (3 - 2 * t); // smoothstep
 
-    let goalLook;
     if (this.skyMode) {
-      goalLook = new THREE.Vector3(
-        this.targetPos.x,
-        15,
-        this.targetPos.z - 40
-      );
+      this._goalLook.set(this.targetPos.x, 15, this.targetPos.z - 40);
     } else {
-      goalLook = new THREE.Vector3(
-        this.targetPos.x,
-        0,
-        this.targetPos.z - this.lookAhead
-      );
+      this._goalLook.set(this.targetPos.x, 0, this.targetPos.z - this.lookAhead);
     }
-
-    const goalPos = new THREE.Vector3(
+    this._goalPos.set(
       this.targetPos.x,
       this.targetPos.y + (this.skyMode ? 2.5 : this.height),
       this.targetPos.z + (this.skyMode ? 12 : this.distance)
@@ -180,8 +178,8 @@ export class CameraController {
     const baseSmooth = this.skyMode ? this.skySmoothing : this.smoothing;
     const smooth = 0.02 + (baseSmooth - 0.02) * easedT;
     const alpha = 1 - Math.pow(1 - smooth, dt * 60);
-    this.currentPos.lerp(goalPos, alpha);
-    this.currentLook.lerp(goalLook, alpha);
+    this.currentPos.lerp(this._goalPos, alpha);
+    this.currentLook.lerp(this._goalLook, alpha);
 
     // 微揺れ
     this.camera.position.set(

@@ -675,6 +675,13 @@ export class SongCircleSystem {
     for (const c of this._circles) c.startGather();
   }
 
+  triggerSelection() {
+    for (let i = 0; i < this._circles.length; i++) {
+      if (i === this._activeIdx) this._circles[i].triggerTitleFade();
+      else                       this._circles[i].triggerScatter();
+    }
+  }
+
   startGatherFrom(introFormPosArray) {
     const numCircles = this._circles.length;
     const perCircle  = this._circles[0]._n;
