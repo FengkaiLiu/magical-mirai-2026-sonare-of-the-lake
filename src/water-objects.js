@@ -137,26 +137,25 @@ export class WaterObjects {
   }
 
   _createPlank(px, pz) {
-    const wy  = waveHeight(px, pz, this._elapsed) + 0.2;
+    const wy  = waveHeight(px, pz, this._elapsed) + 0.05;
+    const spawnY = wy - 0.72;
     const mesh = new THREE.Mesh(_PLANK_GEO, _PLANK_MAT);
-    mesh.position.set(px, wy, pz);
+    mesh.position.set(px, spawnY, pz);
     mesh.rotation.y = Math.random() * Math.PI;
     mesh.castShadow = true;
     this.engine.scene.add(mesh);
 
     const body = new CANNON.Body({
-      mass: 0.08,
+      mass: 0,
+      type: CANNON.Body.KINEMATIC,
       shape: new CANNON.Box(new CANNON.Vec3(1.1, 0.09, 0.275)),
       material: this.engine.materials.lyric,
-      linearDamping: 0.82,
-      angularDamping: 0.95,
     });
-    body.position.set(px, wy, pz);
-    body.sleepSpeedLimit = 0.4;
-    body.sleepTimeLimit  = 0.3;
+    body.position.set(px, spawnY, pz);
+    body.collisionResponse = false;
     this.engine.world.addBody(body);
 
-    const plank = { mesh, body, alive: true, age: 0 };
+    const plank = { mesh, body, alive: true, age: 0, _prevY: spawnY };
     body.addEventListener("collide", (event) => {
       if (!plank.alive) return;
       if (event.body === this._boatBody) { plank.alive = false; plank._pendingShatter = true; }
@@ -300,15 +299,13 @@ export class WaterObjects {
       if (!p.alive) { this._planks.splice(i, 1); continue; }
       p.age += dt;
       const bx = p.body.position.x, bz = p.body.position.z;
-      const wy  = waveHeight(bx, bz, elapsed) + 0.05;
-      const yErr = wy - p.body.position.y;
-      // Cap force: dt spikes (from lyric text-sampling hitches) cause CANNON to run
-      // multiple sub-steps but applyForce is only consumed in the first sub-step,
-      // so planks free-fall in sub-steps 2+ and then over-correct. Capping the force
-      // bounds the correction impulse and prevents violent oscillation.
-      const forceY = Math.max(-3, Math.min(3, yErr * 35 - p.body.velocity.y * 10));
-      this._buoyForce.set(0, forceY, 0);
-      p.body.applyForce(this._buoyForce);
+      const surfaceY = waveHeight(bx, bz, elapsed) + 0.05;
+      const riseT = Math.min(1, p.age / 1.2);
+      const targetY = surfaceY - (1 - riseT) * 0.72;
+      const smoothedY = p.body.position.y + (targetY - p.body.position.y) * Math.min(1, dt * 7.5);
+      p.body.velocity.y = dt > 0 ? (smoothedY - p._prevY) / dt : 0;
+      p._prevY = smoothedY;
+      p.body.position.y = smoothedY;
       p.mesh.position.set(p.body.position.x, p.body.position.y, p.body.position.z);
       p.mesh.quaternion.set(
         p.body.quaternion.x, p.body.quaternion.y, p.body.quaternion.z, p.body.quaternion.w);
