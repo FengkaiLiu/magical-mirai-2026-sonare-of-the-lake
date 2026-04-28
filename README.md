@@ -23,6 +23,7 @@
 - [Cannon-es JavaScript Library](https://github.com/pmndrs/cannon-es?tab=readme-ov-file) - 3D physics engine
 - [Vite](https://vitejs.dev/) — Build tool
 - [Claude Code](https://claude.com/product/claude-code) - Programming Assistant
+- [Troika JS](https://github.com/protectwise/troika) - Text plugin
 - ........ (Constructing)
 
 ## Designated Song
