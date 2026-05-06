@@ -452,9 +452,7 @@ export class LyricFormation {
 
   update(dt, elapsed, boatPos, boatVel) {
     if (this._disposed) return;
-    // Clamp dt so a frame hitch (canvas getImageData stall on first phrase render)
-    // doesn't teleport particles or spike their alpha on that single large-dt frame.
-    dt = Math.min(dt, 0.05);
+    // Engine.start() already clamps dt to 0.05 before invoking update() — no extra cap needed.
 
     // Two-phase deferred processing — spreads the two expensive ops across frames:
     // Frame N+1: sampleTextPoints (getImageData readback) → stores _textPointsLocal
@@ -630,7 +628,8 @@ export class LyricFormation {
       const wb  = _waveGrid[ giy      * GRID_N + gix + 1];
       const wc  = _waveGrid[(giy + 1) * GRID_N + gix    ];
       const wd  = _waveGrid[(giy + 1) * GRID_N + gix + 1];
-      const py  = wa + (wb - wa) * gfx + (wc - wa) * gfy + (wd - wa + wb - wc) * gfx * gfy + SURFACE_OFFSET;
+      // Standard bilinear: f(u,v) = A + (B-A)u + (C-A)v + (A-B-C+D)uv
+      const py  = wa + (wb - wa) * gfx + (wc - wa) * gfy + (wa - wb - wc + wd) * gfx * gfy + SURFACE_OFFSET;
 
       pos[i3]     = px;
       pos[i3 + 1] = py;

@@ -277,9 +277,8 @@ export class WaterObjects {
   update(dt, elapsed) {
     this._elapsed = elapsed;
 
-    for (const body of this._pendingBodyRemoval) {
-      if (this.engine.world.bodies.includes(body)) this.engine.world.removeBody(body);
-    }
+    // cannon-es removeBody is a no-op for unregistered bodies, so duplicate calls are safe.
+    for (const body of this._pendingBodyRemoval) this.engine.world.removeBody(body);
     this._pendingBodyRemoval.length = 0;
 
     for (const p of this._planks) {
@@ -391,9 +390,7 @@ export class WaterObjects {
     this.engine.removeUpdatable(this);
     for (const p of this._planks) this._destroyPlank(p);
     for (const n of this._notes)  this._destroyNote(n);
-    for (const body of this._pendingBodyRemoval) {
-      if (this.engine.world.bodies.includes(body)) this.engine.world.removeBody(body);
-    }
+    for (const body of this._pendingBodyRemoval) this.engine.world.removeBody(body);
     this._pendingBodyRemoval.length = 0;
     for (const f of this._fragments) {
       this.engine.scene.remove(f.mesh);

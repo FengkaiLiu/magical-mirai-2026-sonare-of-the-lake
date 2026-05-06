@@ -10,6 +10,35 @@ import { SONGS } from "./songs.js";
 document.fonts.load('bold 60px "Caveat"');
 document.fonts.load('400 60px "KiwiMaru"');
 
+// ── States ────────────────────────────────────────────────────────────────────
+
+const STATE = Object.freeze({
+  WAITING:          "waiting",          // pre-gather; updates skipped
+  GATHERING:        "gathering",        // particles converge into orbit ring
+  IDLE:             "idle",              // breathing orbit, waiting for boat
+  ACTIVATING:       "activating",       // boat entered radius; collapsing into title
+  ACTIVE:           "active",            // title fully formed, awaiting Enter
+  RETURNING:        "returning",        // boat left radius; expanding back to idle
+  SCATTERED:        "scattered",        // non-selected circle: blow apart and fade
+  SELECTED_SCATTER: "selectedScatter", // not currently used as a triggered state
+  TITLE_FADE:       "titleFade",        // selected circle: confirmation flash + dissolve
+});
+
+// Terminal states whose particle/ring fade is driven directly inside the state branch,
+// not through the smooth-transition lerp helper.
+const TERMINAL_STATES = new Set([STATE.TITLE_FADE, STATE.SCATTERED, STATE.SELECTED_SCATTER]);
+
+// States that deactivate() must NOT interrupt — terminal/transient states must run to completion.
+const NON_DEACTIVATABLE = new Set([
+  STATE.IDLE, STATE.RETURNING, STATE.WAITING, STATE.GATHERING,
+  STATE.TITLE_FADE, STATE.SCATTERED, STATE.SELECTED_SCATTER,
+]);
+
+// States in which the circle is eligible to be "near boat" for activation detection.
+const ACTIVATION_ELIGIBLE = new Set([
+  STATE.IDLE, STATE.ACTIVATING, STATE.ACTIVE, STATE.RETURNING, STATE.GATHERING,
+]);
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const COUNT         = 1200;
@@ -59,7 +88,7 @@ const _frag = /* glsl */ `
 // ── Glow ring shader ──────────────────────────────────────────────────────────
 // RingGeometry UV: u = angle 0..1, v = 0 (inner) .. 1 (outer).
 // After rotateX(-PI/2) the geometry lies flat in XZ.
-// Vertex shader adds traveling sine waves for 律動 (rhythmic ripple).
+// Vertex shader adds traveling sine waves for a rhythmic rippling effect.
 
 const _ringVert = /* glsl */ `
   varying vec2  vUv;
@@ -140,7 +169,7 @@ class SongCircle {
     this.songIndex = index;
     this._disposed = false;
 
-    this._state     = "waiting";
+    this._state     = STATE.WAITING;
     this._stateTime = 0;
     this._alphaMul  = 0;
 
@@ -244,26 +273,24 @@ class SongCircle {
   // ── Public API ────────────────────────────────────────
 
   startGather() {
-    if (this._state !== "waiting") return;
-    this._state     = "gathering";
+    if (this._state !== STATE.WAITING) return;
+    this._state     = STATE.GATHERING;
     this._stateTime = 0;
   }
 
   activate() {
     const s = this._state;
-    if (s === "active" || s === "activating" || s === "waiting") return;
-    this._state     = "activating";
+    if (s === STATE.ACTIVE || s === STATE.ACTIVATING || s === STATE.WAITING) return;
+    this._state     = STATE.ACTIVATING;
     this._stateTime = 0;
     this._assignTextTargets();
   }
 
   deactivate() {
-    const s = this._state;
-    // Never interrupt terminal/fading states — they must run to completion
-    if (s === "idle" || s === "returning" || s === "waiting" || s === "gathering"
-        || s === "titleFade" || s === "scattered" || s === "selectedScatter") return;
+    // Only ACTIVATING/ACTIVE roll back to RETURNING — every other state must run to completion.
+    if (NON_DEACTIVATABLE.has(this._state)) return;
     this._hasTarget.fill(0);
-    this._state     = "returning";
+    this._state     = STATE.RETURNING;
     this._stateTime = 0;
   }
 
@@ -278,7 +305,7 @@ class SongCircle {
       this._velArr[i3]     = (dx / d) * sp;
       this._velArr[i3 + 2] = (dz / d) * sp;
     }
-    this._state     = "scattered";
+    this._state     = STATE.SCATTERED;
     this._stateTime = 0;
   }
 
@@ -294,7 +321,7 @@ class SongCircle {
       this._velArr[i3 + 2] = (dz / d) * sp + (Math.random() - 0.5) * 7;
     }
     this._ring1.uniforms.uOpacity.value = 1.3;
-    this._state     = "selectedScatter";
+    this._state     = STATE.SELECTED_SCATTER;
     this._stateTime = 0;
   }
 
@@ -319,7 +346,7 @@ class SongCircle {
     this._ring1.uniforms.uColor.value.copy(this._white);
     this._ring1.uniforms.uOpacity.value = 1.8;
     this._ring1.uniforms.uPulse.value   = 1.0;
-    this._state     = "titleFade";
+    this._state     = STATE.TITLE_FADE;
     this._stateTime = 0;
   }
 
@@ -390,7 +417,7 @@ class SongCircle {
   // ── Update ────────────────────────────────────────────
 
   update(dt, elapsed) {
-    if (this._disposed || this._state === "waiting") return;
+    if (this._disposed || this._state === STATE.WAITING) return;
 
     this._ring1.uniforms.uTime.value = elapsed;
     this._stateTime += dt;
@@ -412,10 +439,7 @@ class SongCircle {
 
     // Smooth ring visual params for all non-terminal states.
     // Terminal states (titleFade, scattered, selectedScatter) manage ring directly.
-    const _isTerminal = this._state === "titleFade"
-                     || this._state === "scattered"
-                     || this._state === "selectedScatter";
-    if (!_isTerminal) {
+    if (!TERMINAL_STATES.has(this._state)) {
       const rf = Math.min(1, dt * 7);
       const ru = this._ring1.uniforms;
       ru.uOpacity.value += (this._ringOpTgt - ru.uOpacity.value) * rf;
@@ -427,7 +451,7 @@ class SongCircle {
       ru.uColor.value.copy(this._tmpCol1);
     }
 
-    if (this._state === "gathering") {
+    if (this._state === STATE.GATHERING) {
       this._alphaMul = Math.min(1, this._alphaMul + dt * 0.55);
       this._uniforms.uAlphaMul.value = this._alphaMul;
 
@@ -460,7 +484,7 @@ class SongCircle {
 
       if (allClose || this._stateTime > 8.0) {
         this._uniforms.uColor.value.copy(this._songCol);
-        this._state = "idle"; this._stateTime = 0;
+        this._state = STATE.IDLE; this._stateTime = 0;
       }
       this._pulseEnvTgt = 0;
       this._compactTgt  = 0;
@@ -468,7 +492,7 @@ class SongCircle {
       this._ringScTgt   = 1.0;
       this._ringPuTgt   = 0;
 
-    } else if (this._state === "idle") {
+    } else if (this._state === STATE.IDLE) {
       for (let i = 0; i < n; i++) {
         const i3 = i * 3;
         const wave = Math.sin(elapsed * 1.7 + this._orbitPhase[i]) * 0.12
@@ -488,7 +512,7 @@ class SongCircle {
       this._ringScTgt = rScale;
       this._ringPuTgt = 0;
 
-    } else if (this._state === "activating") {
+    } else if (this._state === STATE.ACTIVATING) {
       this._pulseEnvTgt = 1.0;
       this._compactTgt  = 1.0;
       // orbitMul smoothly collapses from full radius (1.0) to tight (0.42)
@@ -508,14 +532,14 @@ class SongCircle {
         }
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
       }
-      if (this._stateTime > 1.4) { this._state = "active"; this._stateTime = 0; }
+      if (this._stateTime > 1.4) { this._state = STATE.ACTIVE; this._stateTime = 0; }
       this._uniforms.uPulse.value    = 0;
       this._uniforms.uAlphaMul.value = this._alphaMul;
       this._ringOpTgt = 0.75;
       this._ringScTgt = 1.06;
       this._ringPuTgt = 0.3;
 
-    } else if (this._state === "active") {
+    } else if (this._state === STATE.ACTIVE) {
       this._pulseEnvTgt = 1.0;
       this._compactTgt  = 1.0;
       const orbitMul = 1.0 - 0.58 * this._compactBlend;
@@ -538,7 +562,7 @@ class SongCircle {
       this._ringScTgt = 1.10;
       this._ringPuTgt = 0.4;
 
-    } else if (this._state === "returning") {
+    } else if (this._state === STATE.RETURNING) {
       this._pulseEnvTgt = 0;
       this._compactTgt  = 0;
       let allClose = true;
@@ -558,7 +582,7 @@ class SongCircle {
         }
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
       }
-      if (allClose) { this._state = "idle"; this._stateTime = 0; }
+      if (allClose) { this._state = STATE.IDLE; this._stateTime = 0; }
       this._uniforms.uPulse.value    = 0;
       this._uniforms.uAlphaMul.value = this._alphaMul;
       const breathe = 0.58 + 0.22 * Math.sin(elapsed * 1.7);
@@ -566,7 +590,7 @@ class SongCircle {
       this._ringScTgt = 1.0 + 0.04 * Math.sin(elapsed * 1.7);
       this._ringPuTgt = 0;
 
-    } else if (this._state === "scattered") {
+    } else if (this._state === STATE.SCATTERED) {
       this._alphaMul = Math.max(0, this._alphaMul - dt * 0.6);
       this._uniforms.uAlphaMul.value = this._alphaMul;
       for (let i = 0; i < n; i++) {
@@ -580,7 +604,7 @@ class SongCircle {
       const rScale = 1.0 + (1.0 - this._alphaMul) * 0.28;
       this._setRingState(this._alphaMul * 0.9, rScale);
 
-    } else if (this._state === "selectedScatter") {
+    } else if (this._state === STATE.SELECTED_SCATTER) {
       this._alphaMul = Math.max(0, this._alphaMul - dt * 0.85);
       this._uniforms.uAlphaMul.value = this._alphaMul;
       const yBoost = Math.max(0, 0.55 - this._stateTime * 1.8);
@@ -595,7 +619,7 @@ class SongCircle {
       const rScale = 1.0 + (1.0 - this._alphaMul) * 0.55;
       this._setRingState(Math.min(1.3, this._alphaMul * 1.8), rScale);
 
-    } else if (this._state === "titleFade") {
+    } else if (this._state === STATE.TITLE_FADE) {
       // Particles: flash burst then slow dissolve
       const decayRate = this._alphaMul > 1.0 ? 7.0 : 0.55;
       this._alphaMul = Math.max(0, this._alphaMul - dt * decayRate);
@@ -709,7 +733,7 @@ export class SongCircleSystem {
     const delayCircles = [];
     for (let ci = 0; ci < numCircles; ci++) {
       const circle = this._circles[ci];
-      if (circle._state !== "waiting") { circle.startGather(); continue; }
+      if (circle._state !== STATE.WAITING) { circle.startGather(); continue; }
 
       const bin = bins[ci];
       for (let j = 0; j < perCircle; j++) {
@@ -731,7 +755,7 @@ export class SongCircleSystem {
       circle._uniforms.uAlphaMul.value = 0;
       circle._uniforms.uColor.value.set(0x88e8ff);
       circle._pts.geometry.attributes.position.needsUpdate = true;
-      circle._state     = "gathering";
+      circle._state     = STATE.GATHERING;
       circle._stateTime = 0;
       delayCircles.push(circle);
     }
@@ -768,8 +792,7 @@ export class SongCircleSystem {
       const c  = this._circles[i];
       c.update(dt, elapsed);
 
-      const st = c._state;
-      if (st === "idle" || st === "activating" || st === "active" || st === "returning" || st === "gathering") {
+      if (ACTIVATION_ELIGIBLE.has(c._state)) {
         const dx = bp.x - c.center.x, dz = bp.z - c.center.z;
         const d  = Math.sqrt(dx * dx + dz * dz);
         if (d < ACTIVATE_DIST && d < nearDist) { nearDist = d; nearIdx = i; }

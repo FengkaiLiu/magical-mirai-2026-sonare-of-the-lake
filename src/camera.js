@@ -1,8 +1,8 @@
 /**
  * ==========================================
- * CameraController — スムーズ俯瞰追従
+ * CameraController — Smooth elevated chase camera
  * ==========================================
- * 固定角度で船を追いかける。急に動かず、ゆったりlerp。
+ * Follows the boat from a fixed offset, lerping each frame for a soft cinematic feel.
  */
 
 import * as THREE from "three";
@@ -12,15 +12,15 @@ export class CameraController {
     this.engine = engine;
     this.camera = engine.camera;
 
-    // カメラの設定 (Bruno風の近い追従)
-    this.height = 8;      // 船からの高さ (was 14)
-    this.distance = 10;   // 船からの後方距離 (was 16)
-    this.lookAhead = 2;   // 注視点を船の前方にずらす量 (was 3)
+    // Camera placement (Bruno-style close follow)
+    this.height = 8;      // height above the boat (was 14)
+    this.distance = 10;   // distance behind the boat (was 16)
+    this.lookAhead = 2;   // forward offset of the look-at point (was 3)
 
-    // スムーズ追従
+    // Smooth follow
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);
     this.currentLook = new THREE.Vector3(0, 0, 0);
-    this.smoothing    = 0.08;  // フレームレート非依存 (boat follow)
+    this.smoothing    = 0.08;  // frame-rate independent (boat follow)
     this.skySmoothing = 0.025; // slow cinematic sweep into sky view
     this._boatRef = null;
 
@@ -56,7 +56,7 @@ export class CameraController {
       this.currentLook.set(0, 0, 0);
     }
 
-    // 初期位置
+    // Initial pose
     this.camera.position.copy(this.currentPos);
     this.camera.lookAt(this.currentLook);
     this.camera.fov = 50;
@@ -81,16 +81,8 @@ export class CameraController {
     this._boatRef = boat;
   }
 
-  setTarget(boatPosition) {
-    this.targetPos = boatPosition;
-  }
-
   setSkyMode(enable) {
     this.skyMode = enable;
-  }
-
-  setSkyLyric(mesh) {
-    this.skyLyricMesh = mesh;
   }
 
   update(dt, elapsed) {
@@ -181,7 +173,7 @@ export class CameraController {
     this.currentPos.lerp(this._goalPos, alpha);
     this.currentLook.lerp(this._goalLook, alpha);
 
-    // 微揺れ
+    // Subtle camera bob
     this.camera.position.set(
       this.currentPos.x + Math.sin(elapsed * 0.08) * 0.04,
       this.currentPos.y + Math.sin(elapsed * 0.11) * 0.03,

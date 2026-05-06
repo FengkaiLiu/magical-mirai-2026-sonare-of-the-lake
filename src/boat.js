@@ -1,10 +1,9 @@
 /**
  * ==========================================
- * Boat — Cannon-es 物理ボート
+ * Boat — Cannon-es physics-driven boat
  * ==========================================
- * Controls の actions を読んで動く。
- * キーボード入力は Controls が管理。
- * Three.js の Mesh は物理ボディに同期。
+ * Reads Controls.actions to move; keyboard input is owned by Controls.
+ * The Three.js mesh is synced to the physics body each frame.
  */
 
 import * as THREE from "three";
@@ -182,20 +181,20 @@ export class Boat {
   }
 
   /**
-   * preStep — 物理演算前: 入力を読んで速度を設定
+   * preStep — Pre-physics: read input and set velocities/forces.
    */
   preStep(dt, elapsed) {
     const actions = this.controls.actions;
     const energy = (this.engine.env && this.engine.env.smoothedEnergy) || 0;
 
-    // 浮力: 弹簧式，把船推向水面 (waterLevel is now dynamic based on waves)
+    // Buoyancy: spring force pushing the hull toward the wave surface.
     const wh = waveHeight(this.body.position.x, this.body.position.z, elapsed, energy);
-    const waterLevel = wh + 0.15; // Offset to keep hull above
-    const buoyancy = (waterLevel - this.body.position.y) * 40; 
+    const waterLevel = wh + 0.15; // offset keeps the hull above water
+    const buoyancy = (waterLevel - this.body.position.y) * 40;
     this.body.velocity.y += buoyancy * dt;
-    this.body.velocity.y *= 0.9; // 水の阻尼
+    this.body.velocity.y *= 0.9; // water drag
 
-    // 船の向き (reuse pre-allocated _fwdVec — used only within this synchronous block)
+    // Boat heading (reuse pre-allocated _fwdVec — used only within this synchronous block)
     const quat = this.body.quaternion;
     this._fwdVec.set(0, 0, -1);
     quat.vmult(this._fwdVec, this._fwdVec);
@@ -263,20 +262,20 @@ export class Boat {
       vel.z *= ratio;
     }
 
-    // 転覆防止 (X/Z回転を抑制するが完全にはロックしない)
+    // Anti-capsize: damp X/Z angular velocity without fully locking it.
     this.body.angularVelocity.x *= 0.85;
     this.body.angularVelocity.z *= 0.85;
   }
 
   /**
-   * update — 物理演算後: メッシュ同期 + 範囲制限
-   * alpha: interpolation factor [0,1) between previous and current physics state
+   * update — Post-physics: sync mesh and clamp position to play area.
+   * alpha: interpolation factor [0,1) between previous and current physics state.
    */
   update(dt, elapsed, alpha = 1) {
     const p = this.body.position;
     const quat = this.body.quaternion;
 
-    // 範囲制限 (applied to physics body)
+    // Clamp to play area (applied to physics body)
     p.x = Math.max(-40, Math.min(40, p.x));
     p.z = Math.max(-40, Math.min(40, p.z));
 
@@ -295,7 +294,7 @@ export class Boat {
     this._prevQuat.slerp(quat, alpha, this._interpQ);
     this.mesh.quaternion.set(this._interpQ.x, this._interpQ.y, this._interpQ.z, this._interpQ.w);
 
-    // 微かなボブ
+    // Subtle bob
     this.mesh.position.y += Math.sin(elapsed * 1.5) * 0.015;
 
     // Trail update
@@ -325,8 +324,13 @@ export class Boat {
     this.body.position.set(0, 0.5, startZ);
     this.body.velocity.set(0, 0, 0);
     this.body.angularVelocity.set(0, 0, 0);
+    // Reset orientation so re-entrance always begins facing forward (-Z),
+    // independent of whatever heading the boat had before.
+    this.body.quaternion.set(0, 0, 0, 1);
     this._prevPos.set(0, 0.5, startZ);
+    this._prevQuat.set(0, 0, 0, 1);
     this.mesh.position.set(0, 0.5, startZ);
+    this.mesh.quaternion.set(0, 0, 0, 1);
 
     // Auto-drive toward the lake center
     this._autoTarget = new THREE.Vector3(0, 0, 0);

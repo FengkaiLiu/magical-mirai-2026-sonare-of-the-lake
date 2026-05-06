@@ -356,17 +356,8 @@ export class LyricManager {
     this.skySystem   = new SkyLyricSystem(engine, colorHex);
     this.sprites     = [];
     this.currentText = "";
-    this._updatable  = {
-      preStep: (dt, elapsed) => this._preStep(dt, elapsed),
-      update:  (dt, elapsed) => this._update(dt, elapsed),
-    };
+    this._updatable  = { update: (dt, elapsed) => this._update(dt, elapsed) };
     engine.addUpdatable(this._updatable);
-  }
-
-  _preStep(dt, elapsed) {
-    for (const s of this.sprites) {
-      if (s.preStep) s.preStep(dt, elapsed);
-    }
   }
 
   setChorusMode(isChorus) {

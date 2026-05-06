@@ -39,6 +39,7 @@
 
 - All images/illustrations are original or inspired by others' work (See reference), and properly licensed — no AI-generated visual assets.
 - Source code is written for readability with comments explaining the program structure.
+- The TextAlive App API token in `src/game-scene.js` is a **public client-side application token** issued for this app. It identifies the application to the TextAlive API but carries no privileged scope, so committing it to source is the standard pattern recommended by [TextAlive App API docs](https://developer.textalive.jp/). It is not a secret and does not need to be rotated or hidden.
 
 ## Reference
 

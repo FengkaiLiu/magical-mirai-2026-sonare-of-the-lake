@@ -1,9 +1,10 @@
 /**
  * ==========================================
- * Engine — Three.js + Cannon-es コアエンジン
+ * Engine — Three.js + Cannon-es core engine
  * ==========================================
  * Render loop, physics step, resize handling.
- * Bruno Simon 風のアーキテクチャ。
+ * Bruno-Simon-style architecture: Engine owns the scene graph and physics world,
+ * objects opt-in to the loop by registering as updatables.
  */
 
 import * as THREE from "three";
@@ -46,31 +47,31 @@ export class Engine {
       icon:  new CANNON.Material("icon"),
     };
 
-    // 船 vs 木板: 木材らしい低弾性、中摩擦（弾かず押し流す）
+    // Boat vs lyric plank: wood-like low restitution + medium friction (pushed, not bounced).
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.boat, this.materials.lyric,
       { friction: 0.3, restitution: 0.05 }
     ));
 
-    // 歌詞 vs 水面: 高摩擦（着水後すぐ止まる）、低弾性
+    // Lyric vs water surface: high friction so planks settle quickly after impact.
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.lyric, this.materials.water,
       { friction: 0.8, restitution: 0.15 }
     ));
 
-    // 船 vs 水面: 中摩擦（水上を滑る感じ）
+    // Boat vs water: medium friction (skim across the surface).
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.boat, this.materials.water,
       { friction: 0.3, restitution: 0.05 }
     ));
 
-    // 板 vs 板: 摩擦高め・弾性ほぼなし（衝突後すぐ静止）
+    // Plank vs plank: high friction, near-zero restitution (settle on contact).
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.lyric, this.materials.lyric,
       { friction: 0.6, restitution: 0.02 }
     ));
 
-    // 船 vs Icon: zero restitution — collision is detection-only for song selection
+    // Boat vs icon: zero restitution — collision is detection-only for song selection
     this.world.addContactMaterial(new CANNON.ContactMaterial(
       this.materials.boat, this.materials.icon,
       { friction: 0, restitution: 0 }

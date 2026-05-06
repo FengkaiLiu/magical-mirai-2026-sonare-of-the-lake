@@ -91,9 +91,6 @@ export class FishLyricSystem {
     for (const f of this._formations) f.triggerColorShift(hexColor, duration);
   }
 
-  /** No-op — intensity handled internally by each formation */
-  setChorusMode() {}
-
   update(dt, elapsed) {
     const boatPos = this.boat.getPosition();
     const boatVel = this.boat.body.velocity; // CANNON.Vec3 — live reference

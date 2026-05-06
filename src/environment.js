@@ -4,7 +4,7 @@
  */
 
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { preloadGLTF } from "./asset-cache.js";
 
 export class Environment {
   constructor(engine) {
@@ -122,9 +122,11 @@ export class Environment {
 
     // === Terrain from GLTF ===
     this.coralMeshes = []; // { mesh, materials: MeshStandardMaterial[] }
-    const loader = new GLTFLoader();
-    loader.load("/models/terrain.glb", (gltf) => {
-      this.terrainModel = gltf.scene;
+    // Use asset-cache so the parsed GLTF is shared with any future consumer and
+    // benefits from THREE.Cache's deduplicated network fetch.  Clone the scene so
+    // local mutations (material clone, position shift) don't pollute the cached source.
+    preloadGLTF("/models/terrain.glb").then((gltf) => {
+      this.terrainModel = gltf.scene.clone(true);
 
       this.terrainModel.traverse((child) => {
         if (child.isMesh) {
@@ -160,7 +162,7 @@ export class Environment {
       scene.add(this.terrainModel);
       this._sceneObjects.push(this.terrainModel);
       console.log(`[Environment] Coral meshes found: ${this.coralMeshes.length}`);
-    });
+    }).catch((e) => console.warn("[Environment] Failed to load terrain.glb:", e));
 
     // === Floating particles ===
     this.particleCount = 50;

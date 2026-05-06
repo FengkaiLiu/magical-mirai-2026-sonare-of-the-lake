@@ -1,18 +1,18 @@
 /**
  * ==========================================
- * Controls — 入力管理 (キーボード / タッチ)
+ * Controls — Input management (keyboard / touch)
  * ==========================================
- * Bruno Simon 風: Controls は boolean flags だけ管理。
- * Boat や他のシステムは actions を読むだけ。
+ * Bruno-Simon-style: Controls only owns boolean flags.
+ * Boat and other systems read `actions` — they never touch the DOM.
  *
- * 今後の拡張:
- *   - タッチ仮想ジョイスティック
- *   - ゲームパッド対応
+ * Future extensions:
+ *   - Touch virtual joystick
+ *   - Gamepad support
  */
 
 export class Controls {
   constructor() {
-    // === Action flags — 他のシステムはこれを読むだけ ===
+    // === Action flags — read-only for other systems ===
     this.actions = {
       forward: false,
       backward: false,
@@ -20,7 +20,7 @@ export class Controls {
       right: false,
     };
 
-    // === キーボード ===
+    // === Keyboard ===
     this._keyMap = {
       KeyW: "forward",    ArrowUp: "forward",
       KeyS: "backward",   ArrowDown: "backward",
@@ -52,7 +52,7 @@ export class Controls {
   }
 
   /**
-   * クリーンアップ (必要な場合)
+   * Cleanup (call when the controls instance is no longer needed).
    */
   dispose() {
     window.removeEventListener("keydown", this._onKeyDown);

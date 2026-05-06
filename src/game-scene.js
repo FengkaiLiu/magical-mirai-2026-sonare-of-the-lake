@@ -283,18 +283,53 @@ export class GameScene {
   _activatePlay(songIndex) {
     this._state = "play";
     const song = SONGS[songIndex];
-    const pre  = this._preloadedSongs[songIndex];
+    const pre  = this._ensurePreloadedPlayer(songIndex, song);
 
-    // Show loading overlay — hidden when onPlay fires (or forced away by fallback timer).
-    const overlayEl = document.getElementById("overlay");
-    if (overlayEl) overlayEl.classList.remove("hidden");
+    document.getElementById("overlay")?.classList.remove("hidden");
 
-    // Safety: if stagger delay hasn't fired yet (e.g. user somehow selects song 5 in < 1.5 s),
-    // start preloading now synchronously so pre.audioEl exists before we use it below.
+    // Update shared systems in place — no reconstruction.
+    this.water.setColors(song.theme.water, song.theme.deep);
+    this.env.setTheme(song.theme);
+    this.controls.locked = false;
+
+    this.lyrics       = new LyricManager(this.engine, this.boat, song.theme.particle);
+    this.fishLyrics   = new FishLyricSystem(this.engine, this.boat);
+    this.waterObjects = new WaterObjects(this.engine, this.boat, this.fishLyrics, this.lyrics);
+
+    this._setupHUD(song);
+
+    // Reuse the preloaded Player + audio element. createFromSongUrl was already called.
+    this.player           = pre.player;
+    this._managed         = pre.managed;
+    this._lastPhrase      = null;
+    this.skyMode          = false;
+    this._autoChorus      = false;
+    // Lyric dispatch is gated on this flag: onTimeUpdate ticks are dropped until
+    // onPlay fires, which guarantees audio has actually started at position 0
+    // (we always requestMediaSeek(0) before requestPlay below).
+    this._playbackStarted = false;
+
+    this._setupAudioPipeline(pre);
+    this._applyBPM(pre.video, song); // safe even if video arrives later — listener also catches it
+    this._setupVisibilityHandler();
+    this._attachPlaybackListeners(song, pre);
+    this._kickOffPlayback(pre);
+    this._setupPlaybackFallback();
+
+    document.getElementById("sky-btn")?.addEventListener("click", () => this.toggleSkyMode());
+  }
+
+  /**
+   * Resolve the preloaded entry for the chosen song, fixing any preload that
+   * never completed (stagger delay hadn't fired yet, or the player silently stalled).
+   */
+  _ensurePreloadedPlayer(songIndex, song) {
+    const pre = this._preloadedSongs[songIndex];
+
+    // Stagger delay hadn't fired yet — kick off preload now so pre.audioEl exists below.
     if (!pre.player) this._startPreload(song, pre);
 
-    // If the preloaded player silently failed (e.g. API rate-limit, network error), discard it
-    // and create a fresh one so the onTimerReady path in addListener below can still fire.
+    // Preload looks dead (no timer, no video) — discard and rebuild the player.
     if (pre.player && !pre.timerReady && !pre.video) {
       console.warn("[GameScene] Preload appears stalled — restarting player for:", song.title);
       pre.player.dispose();
@@ -305,17 +340,10 @@ export class GameScene {
       pre.managed    = false;
       this._startPreload(song, pre);
     }
+    return pre;
+  }
 
-    // Update shared systems in-place — no reconstruction
-    this.water.setColors(song.theme.water, song.theme.deep);
-    this.env.setTheme(song.theme);
-    this.controls.locked = false;
-
-    this.lyrics       = new LyricManager(this.engine, this.boat, song.theme.particle);
-    this.fishLyrics   = new FishLyricSystem(this.engine, this.boat);
-    this.waterObjects = new WaterObjects(this.engine, this.boat, this.fishLyrics, this.lyrics);
-
-    // HUD
+  _setupHUD(song) {
     document.getElementById("hud")?.classList.add("visible");
     const songInfo = document.getElementById("song-info");
     if (songInfo) songInfo.textContent = `${song.title} / ${song.artist}`;
@@ -324,36 +352,18 @@ export class GameScene {
       controlsHint.style.opacity = "1";
       setTimeout(() => { controlsHint.style.opacity = "0"; }, 5000);
     }
+  }
 
-    // Reuse the preloaded Player + audio element (created in _startPreload).
-    // The Player has already called createFromSongUrl — no need to call it again.
-    this.player = pre.player;
-
-    // Gate lyric display until onPlay confirms audio has actually started.
-    // This prevents phantom lyrics that appear when onTimeUpdate fires in the
-    // brief gap between requestPlay() and the first audio frame.
-    this._playbackStarted = false;
-
-    // Secondary guard: the SongleTimer runs a play()+stop() priming sequence
-    // during initialize(), which leaves its internal lastPosition at whatever
-    // the audio was at when that async stop event fired.  On the first real
-    // requestPlay() the timer may therefore fire one "stale" onTimeUpdate tick
-    // at a non-zero position (equal to the wall-clock seconds elapsed since
-    // preload) before it syncs back to the audio element's currentTime (0).
-    // _initialPlayGuard stays true until we see pos < 2000 ms, so that one
-    // phantom tick can never show a lyric or trigger a chorus/sky-mode flip.
-    // Managed-mode players may start at an arbitrary position set by the
-    // TextAlive editor, so the guard is intentionally skipped for them.
-    this._initialPlayGuard = !pre.managed;
-
+  _setupAudioPipeline(pre) {
     try {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      // Proactively resume — browser may suspend AudioContext created >1 s after
-      // the last user gesture, so unlock it now while we're still on that frame.
+      // Proactively resume — browsers may suspend AudioContexts created more
+      // than a second after the last user gesture; unlock now while we're still
+      // on the same frame as the click.
       this.audioContext.resume().catch(() => {});
-      this.analyser     = this.audioContext.createAnalyser();
+      this.analyser         = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
-      this.audioData    = new Uint8Array(this.analyser.frequencyBinCount);
+      this.audioData        = new Uint8Array(this.analyser.frequencyBinCount);
       const source = this.audioContext.createMediaElementSource(pre.audioEl);
       source.connect(this.analyser);
       this.analyser.connect(this.audioContext.destination);
@@ -361,19 +371,11 @@ export class GameScene {
     } catch (e) {
       console.warn("AudioContext setup failed — audio reactivity disabled.", e);
     }
+  }
 
-    this._managed    = pre.managed;
-    this._lastPhrase = null;
-    this.skyMode     = false;
-    this._autoChorus = false;
-
-    // Apply BPM convergence time if video data already arrived during preload.
-    // If onVideoReady fires later (rare — song just selected too fast), the
-    // listener below will catch it.
-    this._applyBPM(pre.video, song);
-
-    // When returning from a background tab, clear all lyric state so the current
-    // phrase resyncs cleanly instead of bursting.
+  _setupVisibilityHandler() {
+    // Returning from a background tab: drop in-flight lyric state so the next
+    // tick resyncs cleanly rather than dumping a backlog.
     this._onVisibilityChange = () => {
       if (document.hidden || this._state !== "play") return;
       this.fishLyrics?.clear();
@@ -381,61 +383,27 @@ export class GameScene {
       this._lastPhrase = null;
     };
     document.addEventListener("visibilitychange", this._onVisibilityChange);
+  }
 
+  _attachPlaybackListeners(song, pre) {
     this.player.addListener({
-      // onVideoReady fires again only when video wasn't loaded yet at selection time.
+      // Fires only if video metadata arrived after _activatePlay started.
       onVideoReady: (v) => {
-        if (!v || pre.video) return; // already processed
+        if (!v || pre.video) return;
         pre.video = v;
         this._applyBPM(v, song);
       },
-      // onTimerReady fires only if the player wasn't ready yet at selection time.
+      // Fires only if the player wasn't timer-ready at selection time.
       onTimerReady: () => {
         if (!this._managed) {
-          // Seek to 0 before playing — resets any stale SongleTimer position
-          // that accumulated while the player was idle during preload.
+          // Seek to 0 before playing so SongleTimer's internal position is reset.
           try { this.player.requestMediaSeek(0); } catch {}
           this.player.requestPlay();
         }
       },
-      onTimeUpdate: (pos) => {
-        // Don't dispatch lyrics until onPlay confirms audio has started.
-        if (document.hidden || !this._playbackStarted) return;
-
-        // Drop any stale pre-sync tick.  The SongleTimer may emit one tick
-        // with a non-zero position right after requestPlay() (its internal
-        // lastPosition drifted during the preload idle period) before syncing
-        // to the audio element's currentTime (0).  Any tick with pos > 2 s on
-        // the very first play is treated as stale and discarded; the guard
-        // releases on the first pos ≤ 2 s tick, which confirms the audio
-        // genuinely started from the beginning.
-        if (this._initialPlayGuard) {
-          if (pos > 2000) return;
-          this._initialPlayGuard = false;
-        }
-
-        const timeTxt = document.getElementById("time");
-        if (timeTxt) timeTxt.textContent =
-          `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
-
-        const inChorus = (song.chorus || []).some(([s, e]) => pos >= s && pos < e);
-        if (inChorus !== this._autoChorus) {
-          this._autoChorus = inChorus;
-          if (this.skyMode !== inChorus) this.toggleSkyMode();
-        }
-
-        const phrase     = this.player.video?.findPhrase(pos);
-        const phraseText = phrase?.text ?? null;
-        if (phraseText !== this._lastPhrase) {
-          this._lastPhrase = phraseText;
-          if (phraseText) {
-            if (this.skyMode) this.lyrics.addPhrase(phraseText);
-            else              this.fishLyrics.addPhrase(phraseText);
-          }
-        }
-      },
+      onTimeUpdate: (pos) => this._handleTimeUpdate(pos, song),
       onPlay: () => {
-        // Audio is actually running — unlock lyric display and clear fallback timer.
+        // Audio actually started — unlock lyric dispatch and clear the fallback timer.
         this._playbackStarted = true;
         if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
         document.getElementById("overlay")?.classList.add("hidden");
@@ -448,34 +416,57 @@ export class GameScene {
         if (pauseBtn) pauseBtn.textContent = "▶";
       },
     });
+  }
 
-    // Player already timer-ready from preload — start playback immediately.
-    // Seek to 0 first: the SongleTimer's internal position may have drifted
-    // during the preload idle period; resetting it here prevents the timer from
-    // reporting a stale non-zero position on the very first onTimeUpdate tick.
+  _handleTimeUpdate(pos, song) {
+    if (document.hidden || !this._playbackStarted) return;
+
+    const timeTxt = document.getElementById("time");
+    if (timeTxt) timeTxt.textContent =
+      `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
+
+    const inChorus = (song.chorus || []).some(([s, e]) => pos >= s && pos < e);
+    if (inChorus !== this._autoChorus) {
+      this._autoChorus = inChorus;
+      if (this.skyMode !== inChorus) this.toggleSkyMode();
+    }
+
+    const phraseText = this.player.video?.findPhrase(pos)?.text ?? null;
+    if (phraseText !== this._lastPhrase) {
+      this._lastPhrase = phraseText;
+      if (phraseText) {
+        if (this.skyMode) this.lyrics.addPhrase(phraseText);
+        else              this.fishLyrics.addPhrase(phraseText);
+      }
+    }
+  }
+
+  /** Player is already timer-ready from preload — start playback immediately. */
+  _kickOffPlayback(pre) {
     if (pre.timerReady && !this._managed) {
       try { this.player.requestMediaSeek(0); } catch {}
       this.player.requestPlay();
     }
+  }
 
-    // Fallback timer: if onPlay hasn't fired within 8 s (e.g. AudioContext stayed
-    // suspended, or the preloaded player silently failed), nudge the AudioContext
-    // and try requestPlay() again. Force-hide the overlay so the user isn't stuck
-    // on the loading screen regardless of whether audio eventually starts.
+  /**
+   * If onPlay hasn't fired within 8 s (e.g. AudioContext stayed suspended,
+   * preloaded player silently failed), nudge the AudioContext and retry
+   * requestPlay().  Either way force-hide the overlay so the user is never
+   * stuck on a black loading screen.
+   */
+  _setupPlaybackFallback() {
     this._playTimeout = setTimeout(() => {
       if (this._disposed || this._state !== "play") return;
       if (!this._playbackStarted) {
         console.warn("[GameScene] Playback start timeout — forcing AudioContext resume");
         this.audioContext?.resume().catch(() => {});
         if (!this._managed) {
-          try { this.player?.requestPlay(); } catch (e) {}
+          try { this.player?.requestPlay(); } catch {}
         }
-        // Unblock the UI regardless — don't leave user on a black loading screen.
         document.getElementById("overlay")?.classList.add("hidden");
       }
     }, 8000);
-
-    document.getElementById("sky-btn")?.addEventListener("click", () => this.toggleSkyMode());
   }
 
   // ── Play helpers ───────────────────────────────────────────────────────────
