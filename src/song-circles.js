@@ -424,6 +424,9 @@ class SongCircle {
 
     const n = this._n, pos = this._posArr;
     const cx = this.center.x, cz = this.center.z;
+    // Match the water shader's uEnergy so particles ride the actual visible
+    // wave surface during loud passages.
+    const energy = this.engine.env?.smoothedEnergy ?? 0;
 
     for (let i = 0; i < n; i++) {
       this._orbitAng[i] += ORBIT_SPEED * this._orbitDir[i] *
@@ -463,7 +466,7 @@ class SongCircle {
         const i3 = i * 3;
         if (this._stateTime < this._gatherDelay[i]) {
           allClose = false;
-          pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+          pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
           continue;
         }
         const tx = cx + Math.cos(this._orbitAng[i]) * this._orbitR[i];
@@ -479,7 +482,7 @@ class SongCircle {
         } else {
           pos[i3] = tx; pos[i3 + 2] = tz;
         }
-        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
       }
 
       if (allClose || this._stateTime > 8.0) {
@@ -499,7 +502,7 @@ class SongCircle {
                    + Math.sin(elapsed * 3.4 + this._orbitAng[i] * 1.7) * 0.05;
         const r  = this._orbitR[i] * (0.88 + wave);
         pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
-        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
         pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
       }
       this._pulseEnvTgt = 0;
@@ -530,7 +533,7 @@ class SongCircle {
           pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
           pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
         }
-        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
       }
       if (this._stateTime > 1.4) { this._state = STATE.ACTIVE; this._stateTime = 0; }
       this._uniforms.uPulse.value    = 0;
@@ -547,12 +550,12 @@ class SongCircle {
         const i3 = i * 3;
         if (this._hasTarget[i]) {
           pos[i3]     = this._targets[i3];
-          pos[i3 + 1] = waveHeight(this._targets[i3], this._targets[i3 + 2], elapsed) + 0.12;
+          pos[i3 + 1] = waveHeight(this._targets[i3], this._targets[i3 + 2], elapsed, energy) + 0.12;
           pos[i3 + 2] = this._targets[i3 + 2];
         } else {
           const r = this._orbitR[i] * orbitMul;
           pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
-          pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+          pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
           pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
         }
       }
@@ -580,7 +583,7 @@ class SongCircle {
         } else {
           pos[i3] = tx; pos[i3 + 2] = tz;
         }
-        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
       }
       if (allClose) { this._state = STATE.IDLE; this._stateTime = 0; }
       this._uniforms.uPulse.value    = 0;
@@ -599,7 +602,7 @@ class SongCircle {
         this._velArr[i3 + 2] *= 0.93;
         pos[i3]     += this._velArr[i3]     * dt;
         pos[i3 + 2] += this._velArr[i3 + 2] * dt;
-        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
       }
       const rScale = 1.0 + (1.0 - this._alphaMul) * 0.28;
       this._setRingState(this._alphaMul * 0.9, rScale);
@@ -614,7 +617,7 @@ class SongCircle {
         this._velArr[i3 + 2] *= 0.97;
         pos[i3]     += this._velArr[i3]     * dt;
         pos[i3 + 2] += this._velArr[i3 + 2] * dt;
-        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12 + yBoost;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12 + yBoost;
       }
       const rScale = 1.0 + (1.0 - this._alphaMul) * 0.55;
       this._setRingState(Math.min(1.3, this._alphaMul * 1.8), rScale);
@@ -633,7 +636,7 @@ class SongCircle {
         this._velArr[i3 + 2] *= 0.985;
         pos[i3]     += this._velArr[i3]     * dt;
         pos[i3 + 2] += this._velArr[i3 + 2] * dt;
-        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed) + 0.12;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
       }
 
       // Ring: smooth independent fade (flash color → song color, opacity → 0)

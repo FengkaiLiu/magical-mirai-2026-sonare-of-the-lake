@@ -61,6 +61,11 @@ export class WaterObjects {
     this._fragments = [];
     this._sparks    = [];
     this._elapsed   = 0;
+    // Cached each frame so spawn helpers (which run inside update) match the wave
+    // height that the water shader uses.  Without this, waveHeight() defaults to
+    // energy=0 while the GPU water sees the boosted amplitude during loud
+    // passages — objects spawn or track ~0.5 world units below the visible surface.
+    this._energy    = 0;
     this._plankTimer = PLANK_INTERVAL * 0.5;
     this._noteTimer  = NOTE_INTERVAL  * 0.3;
     this._pendingBodyRemoval = [];
@@ -137,7 +142,7 @@ export class WaterObjects {
   }
 
   _createPlank(px, pz) {
-    const wy  = waveHeight(px, pz, this._elapsed) + 0.05;
+    const wy  = waveHeight(px, pz, this._elapsed, this._energy) + 0.05;
     const spawnY = wy - 0.72;
     const mesh = new THREE.Mesh(_PLANK_GEO, _PLANK_MAT);
     mesh.position.set(px, spawnY, pz);
@@ -194,7 +199,7 @@ export class WaterObjects {
     });
     mesh.add(new THREE.Mesh(getNoteHaloGeo(), haloMat));
 
-    const wy = waveHeight(pos.x, pos.z, this._elapsed) + this._noteLiftY;
+    const wy = waveHeight(pos.x, pos.z, this._elapsed, this._energy) + this._noteLiftY;
     mesh.position.set(pos.x, wy, pos.z);
     this.engine.scene.add(mesh);
 
@@ -276,6 +281,7 @@ export class WaterObjects {
 
   update(dt, elapsed) {
     this._elapsed = elapsed;
+    this._energy  = this.engine.env?.smoothedEnergy ?? 0;
 
     // cannon-es removeBody is a no-op for unregistered bodies, so duplicate calls are safe.
     for (const body of this._pendingBodyRemoval) this.engine.world.removeBody(body);
@@ -298,7 +304,7 @@ export class WaterObjects {
       if (!p.alive) { this._planks.splice(i, 1); continue; }
       p.age += dt;
       const bx = p.body.position.x, bz = p.body.position.z;
-      const surfaceY = waveHeight(bx, bz, elapsed) + 0.05;
+      const surfaceY = waveHeight(bx, bz, elapsed, this._energy) + 0.05;
       const riseT = Math.min(1, p.age / 1.2);
       const targetY = surfaceY - (1 - riseT) * 0.72;
       const smoothedY = p.body.position.y + (targetY - p.body.position.y) * Math.min(1, dt * 7.5);
@@ -317,7 +323,7 @@ export class WaterObjects {
       const n = this._notes[i];
       n.age += dt;
       const bx = n.mesh.position.x, bz = n.mesh.position.z;
-      const wy  = waveHeight(bx, bz, elapsed) + this._noteLiftY;
+      const wy  = waveHeight(bx, bz, elapsed, this._energy) + this._noteLiftY;
       n.mesh.position.y = wy;
       if (!n.fadeOut) n.body.position.set(bx, wy, bz);
       n.mesh.rotation.y += dt * 1.2;

@@ -504,11 +504,14 @@ export class LyricFormation {
 
     // Pre-compute wave height grid (16×16) covering the formation area.
     // Reduces waveHeight() from 2800 calls/frame → 256 calls/frame (91% reduction).
+    // Energy must match the GPU water shader's uEnergy or particles drift
+    // beneath the visible water surface during loud passages.
+    const energy = this.engine.env?.smoothedEnergy ?? 0;
     const gox = sc.x - GRID_SPAN / 2;
     const goz = sc.z - GRID_SPAN / 2;
     for (let gy = 0; gy < GRID_N; gy++) {
       for (let gx = 0; gx < GRID_N; gx++) {
-        _waveGrid[gy * GRID_N + gx] = waveHeight(gox + gx * GRID_STEP, goz + gy * GRID_STEP, elapsed);
+        _waveGrid[gy * GRID_N + gx] = waveHeight(gox + gx * GRID_STEP, goz + gy * GRID_STEP, elapsed, energy);
       }
     }
 
