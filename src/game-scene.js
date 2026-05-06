@@ -95,6 +95,9 @@ export class GameScene {
         if (!v) return;
         entry.video = v;
         // Prewarm the text-point cache for all phrases during idle load — no game-state deps.
+        // Use FishLyricSystem.prewarmPhrase so cache keys match the runtime addPhrase opts;
+        // a key mismatch (e.g. fontWeight) silently misses and re-runs getImageData inline,
+        // stalling the frame and showing as a camera jitter on each new phrase.
         const seen = new Set();
         let p = v.firstPhrase;
         while (p) { if (p.text) seen.add(p.text); p = p.next; }
@@ -102,7 +105,9 @@ export class GameScene {
         let idx = 0;
         const step = () => {
           if (idx < queue.length) {
-            LyricFormation.prewarmPhrase(queue[idx++], { outlineOnly: false });
+            const text = queue[idx++];
+            FishLyricSystem.prewarmPhrase(text); // lake-view formation cache
+            LyricManager.prewarmPhrase(text);   // sky-view chorus cache
             requestAnimationFrame(step);
           }
         };

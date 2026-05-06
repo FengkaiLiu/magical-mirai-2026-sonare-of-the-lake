@@ -14,7 +14,31 @@ const PHRASE_LIFE    = 5.0; // seconds before a formation auto-fades
 const SPAWN_DIST     = 7;   // distance from boat to formation center
 const SPAWN_SIDE_OFF = 1.5; // slight lateral offset so text doesn't bisect the boat
 
+// Single source of truth for the LyricFormation options used by addPhrase().
+// prewarmPhrase() must pass the SAME values, otherwise sampleTextPoints()
+// computes a different cache key for the prewarm call than for the runtime
+// call, the cache misses on first phrase render, and getImageData stalls the
+// frame (~5–15 ms) — visible as a small camera jitter every new lyric.
+const FORMATION_OPTS = Object.freeze({
+  particleCount: 2400,
+  sizeBase:   0.1,
+  sizeRange:  0.07,
+  glowMin:    1.8,
+  glowMax:    4.0,
+  outlineOnly: false,
+  fontFamily: '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif',
+  fontWeight: "400",
+});
+
 export class FishLyricSystem {
+  /**
+   * Prime the text-sampling cache for a phrase so the first runtime addPhrase
+   * doesn't pay the getImageData cost.  Call from idle preload time.
+   */
+  static prewarmPhrase(text) {
+    LyricFormation.prewarmPhrase(text, FORMATION_OPTS);
+  }
+
   constructor(engine, boat) {
     this.engine      = engine;
     this.boat        = boat;
@@ -64,16 +88,7 @@ export class FishLyricSystem {
     );
 
     const color = this._activeColor;
-    const formation = new LyricFormation(this.engine, center, text, color, {
-      particleCount: 2400,
-      sizeBase:   0.1,
-      sizeRange:  0.07,
-      glowMin:    1.8,
-      glowMax:    4.0,
-      outlineOnly: false,
-      fontFamily: '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif',
-      fontWeight: "400",
-    });
+    const formation = new LyricFormation(this.engine, center, text, color, FORMATION_OPTS);
     formation._age        = 0;    // tracked here for auto-expire
     formation._phraseText = text; // used by duplicate-guard above
     this._formations.push(formation);

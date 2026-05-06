@@ -53,6 +53,47 @@ function getSkyParticleGeo() {
 // Sky lyric canvas-sampling cache (avoids re-running pixel loop for repeated lyrics)
 const _skyPointsCache = new Map();
 
+/** Canvas pixel-sample text to glyph-shape XY target points. Module-level so the
+ *  same cache can be primed during preload via LyricManager.prewarmPhrase(). */
+function _sampleSkyPoints(text) {
+  if (_skyPointsCache.has(text)) return _skyPointsCache.get(text);
+
+  const canvas = document.createElement("canvas");
+  canvas.width  = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, 1024, 256);
+
+  const isJP  = /[　-鿿豈-﫿]/.test(text);
+  const fName = isJP ? '"KiwiMaru"' : '"Caveat"';
+  let fontSize = 70;
+  const font = s => `bold ${s}px ${fName},"M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  ctx.font = font(fontSize);
+  while (ctx.measureText(text).width > 980 && fontSize > 20) {
+    fontSize -= 5;
+    ctx.font = font(fontSize);
+  }
+
+  ctx.fillStyle    = "white";
+  ctx.textAlign    = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 512, 128);
+
+  const data = ctx.getImageData(0, 0, 1024, 256).data;
+  const pts  = [];
+  for (let y = 0; y < 256; y += 1.5) {
+    for (let x = 0; x < 1024; x += 1.5) {
+      const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
+      if (data[i] > 128) pts.push({ tx: (x - 512) * 0.06, ty: -(y - 128) * 0.06 });
+    }
+  }
+
+  if (_skyPointsCache.size >= 20) _skyPointsCache.delete(_skyPointsCache.keys().next().value);
+  _skyPointsCache.set(text, pts);
+  return pts;
+}
+
 // ── Step 1: WaterDecal ────────────────────────────────────────────────────────
 //
 // A troika Text mesh that lies flat on the wave surface and drifts outward from
@@ -192,46 +233,6 @@ class SkyLyricSystem {
     this.convergenceTime = Math.max(0.4, t);
   }
 
-  /** Canvas pixel-sample text to glyph-shape XY target points. Results cached. */
-  _samplePoints(text) {
-    if (_skyPointsCache.has(text)) return _skyPointsCache.get(text);
-
-    const canvas = document.createElement("canvas");
-    canvas.width  = 1024;
-    canvas.height = 256;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "black";
-    ctx.fillRect(0, 0, 1024, 256);
-
-    const isJP  = /[\u3000-\u9FFF\uF900-\uFAFF]/.test(text);
-    const fName = isJP ? '"KiwiMaru"' : '"Caveat"';
-    let fontSize = 70;
-    const font = s => `bold ${s}px ${fName},"M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
-    ctx.font = font(fontSize);
-    while (ctx.measureText(text).width > 980 && fontSize > 20) {
-      fontSize -= 5;
-      ctx.font = font(fontSize);
-    }
-
-    ctx.fillStyle    = "white";
-    ctx.textAlign    = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(text, 512, 128);
-
-    const data = ctx.getImageData(0, 0, 1024, 256).data;
-    const pts  = [];
-    for (let y = 0; y < 256; y += 1.5) {
-      for (let x = 0; x < 1024; x += 1.5) {
-        const i = (Math.floor(y) * 1024 + Math.floor(x)) * 4;
-        if (data[i] > 128) pts.push({ tx: (x - 512) * 0.06, ty: -(y - 128) * 0.06 });
-      }
-    }
-
-    if (_skyPointsCache.size >= 20) _skyPointsCache.delete(_skyPointsCache.keys().next().value);
-    _skyPointsCache.set(text, pts);
-    return pts;
-  }
-
   addPhrase(text, boatPos) {
     if (!text) return;
 
@@ -247,7 +248,7 @@ class SkyLyricSystem {
 
     const skyPos = new THREE.Vector3(boatPos.x, 25, boatPos.z - 40);
 
-    const cachedPts = this._samplePoints(text);
+    const cachedPts = _sampleSkyPoints(text);
     const points    = cachedPts.map(p => ({
       tx: p.tx, ty: p.ty,
       sx: (Math.random() - 0.5) * 25,
@@ -348,6 +349,15 @@ class SkyLyricSystem {
 // ── LyricManager (public API unchanged) ──────────────────────────────────────
 
 export class LyricManager {
+  /**
+   * Prime the sky-mode glyph-sampling cache so the first chorus phrase doesn't
+   * pay the 1024×256 getImageData cost inline (which stalls the frame and shows
+   * as a camera jitter on phrase entry).
+   */
+  static prewarmPhrase(text) {
+    _sampleSkyPoints(text);
+  }
+
   constructor(engine, boat, colorHex = 0xffffff) {
     this.engine      = engine;
     this.boat        = boat;
