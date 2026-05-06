@@ -73,16 +73,16 @@ export class GameScene {
     this._readyPrewarmCount = 0;
     this.onPreloadProgress  = null; // (timerFrac, prewarmFrac) => void
 
-    // Kick off TextAlive preloading for all songs, staggered 300 ms apart so we
-    // don't hammer the TextAlive API with 6 simultaneous requests (which can cause
-    // silent failures).
+    // Kick off TextAlive preloading for all songs.  100 ms stagger is enough to
+    // avoid burst-rate-limiting the TextAlive API while still letting all 6
+    // requests overlap on the network for a near-parallel feel.
     this._preloadedSongs = SONGS.map((song, i) => {
       const entry = {
         player: null, audioEl: null, video: null,
         timerReady: false, managed: false,
         _timerCounted: false, _prewarmCounted: false,
       };
-      setTimeout(() => { if (!this._disposed) this._startPreload(song, entry); }, i * 300);
+      setTimeout(() => { if (!this._disposed) this._startPreload(song, entry); }, i * 100);
       return entry;
     });
 
@@ -96,6 +96,12 @@ export class GameScene {
   _startPreload(song, entry) {
     const audioEl = document.createElement("audio");
     audioEl.crossOrigin = "anonymous";
+    // Default <audio> preload is "metadata" — the browser only fetches enough to
+    // know duration/codec, leaving real buffering until the first play() call.
+    // "auto" tells the browser to start downloading the full file immediately,
+    // which is what we want for a select-then-play flow where audio readiness
+    // is the dominant load-time bottleneck.
+    audioEl.preload = "auto";
     entry.audioEl = audioEl; // set synchronously so _activatePlay can use it immediately
 
     entry.player = new Player({ app: { token: "xTTinPuYYoHYLhnk" }, mediaElement: audioEl });
@@ -116,11 +122,19 @@ export class GameScene {
         while (p) { if (p.text) seen.add(p.text); p = p.next; }
         const queue = [...seen];
         let idx = 0;
+        // Each prewarm step costs ~15 ms (two canvas getImageData readbacks).
+        // The intro screen has near-zero render cost, so we can spend a full
+        // ~32 ms frame on prewarm work without hurting perceived smoothness.
+        // Batching 2 per rAF roughly halves the wall-clock prewarm time vs.
+        // 1-per-frame, which dominated the loading-bar tail at ~10–15 s.
+        const PREWARM_BATCH = 2;
         const step = () => {
-          if (idx < queue.length) {
+          for (let n = 0; n < PREWARM_BATCH && idx < queue.length; n++) {
             const text = queue[idx++];
             FishLyricSystem.prewarmPhrase(text); // lake-view formation cache
             LyricManager.prewarmPhrase(text);   // sky-view chorus cache
+          }
+          if (idx < queue.length) {
             requestAnimationFrame(step);
           } else if (!entry._prewarmCounted) {
             // Queue drained (including the empty-queue case): mark prewarm done.

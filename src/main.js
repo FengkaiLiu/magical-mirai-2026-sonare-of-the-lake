@@ -44,7 +44,18 @@ function applyProgress() {
   const pct = Math.min(100, Math.round(total * 100));
   if (progressFill) progressFill.style.width  = pct + "%";
   if (progressPct)  progressPct.textContent   = pct + "%";
-  if (total >= 0.9999 && !started) {
+
+  // Start can enable as soon as the four "must-have" stages are done.  Prewarm
+  // is nice-to-have — it runs in the background while the user watches the
+  // 5-second intro, and the only cost of an un-prewarmed phrase is a single
+  // ~15 ms hitch on its first render (still much better than the per-phrase
+  // jitter we had before any prewarm existed).  The bar keeps moving past
+  // this point until prewarm completes, so progress stays honest.
+  const coreReady = stages.glbs.progress    >= 1
+                 && stages.fonts.progress   >= 1
+                 && stages.shaders.progress >= 1
+                 && stages.songs.progress   >= 1;
+  if (coreReady && !started) {
     started = true;
     revealAndEnable();
   }
