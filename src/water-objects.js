@@ -29,13 +29,16 @@ const NOTE_COLORS = [
 
 // Scale applied to the musicnote.glb scene root — tweak if the model appears too large/small.
 const NOTE_MODEL_SCALE = 0.4;
+// Radius of the additive halo icosahedron (see getNoteHaloGeo). Lift must clear this too,
+// otherwise the halo sphere dips below the wave even when the model itself is above it.
+const NOTE_HALO_RADIUS = 0.7;
 
 function randRange(a, b) { return a + Math.random() * (b - a); }
 
 // Shared geometries for note halo and icosahedron fallback — avoids per-note allocation.
 let _NOTE_HALO_GEO     = null;
 let _NOTE_FALLBACK_GEO = null;
-function getNoteHaloGeo()     { return _NOTE_HALO_GEO     ??= new THREE.IcosahedronGeometry(0.7, 1); }
+function getNoteHaloGeo()     { return _NOTE_HALO_GEO     ??= new THREE.IcosahedronGeometry(NOTE_HALO_RADIUS, 1); }
 function getNoteFallbackGeo() { return _NOTE_FALLBACK_GEO ??= new THREE.IcosahedronGeometry(0.45, 1); }
 
 // Shared geometry + material for all planks — no per-plank GPU allocation or disposal stall.
@@ -83,13 +86,15 @@ export class WaterObjects {
     this._noteLiftY = 0.5;
     preloadGLTF("models/musicnote.glb").then(gltf => {
       this._noteModel = gltf;
-      // Measure the unscaled bounding box of the template scene, then multiply by
-      // NOTE_MODEL_SCALE to get the scaled extents.  If the model origin is anywhere
-      // above the visual bottom (e.g. centred in Blender), box.min.y < 0 and we need
-      // to lift by (-min.y * scale) so the bottom sits exactly at y = waveHeight.
-      // An extra 0.2 gives a small clearance so the note never clips through the surface.
+      // Lift must clear BOTH (a) the model's own bottom and (b) the additive halo sphere
+      // attached as a child (radius NOTE_HALO_RADIUS, inheriting the root's scale).
+      // Many GLB exports put the origin at the model's visual bottom, so box.min.y ≈ 0
+      // and the model term collapses to the 0.2 floor — without the halo term, the halo
+      // sphere then sits ~0.08 below the wave and the note reads as half-submerged.
       const box = new THREE.Box3().setFromObject(gltf.scene);
-      this._noteLiftY = Math.max(0.2, -box.min.y * NOTE_MODEL_SCALE + 0.2);
+      const modelLift = -box.min.y * NOTE_MODEL_SCALE + 0.2;
+      const haloLift  = NOTE_HALO_RADIUS  * NOTE_MODEL_SCALE + 0.2;
+      this._noteLiftY = Math.max(0.2, modelLift, haloLift);
     }).catch(e => console.warn("[WaterObjects] Failed to load musicnote.glb:", e));
 
     engine.addUpdatable(this);
@@ -198,6 +203,14 @@ export class WaterObjects {
       blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide,
     });
     mesh.add(new THREE.Mesh(getNoteHaloGeo(), haloMat));
+
+    // Force every sub-mesh into the renderOrder=1 bucket so the note paints AFTER
+    // the water (which is renderOrder=0, transparent, depthWrite=false). Without this
+    // the per-distance transparent sort puts the note — usually 8–28 units from the
+    // boat — "farther" than the water plane center, so the water blends on top of the
+    // note and it looks half-submerged from level views and fully submerged from above.
+    // Same convention boat.js / fish-school.js / song-circles.js follow.
+    mesh.traverse(child => { if (child.isMesh) child.renderOrder = 1; });
 
     const wy = waveHeight(pos.x, pos.z, this._elapsed, this._energy) + this._noteLiftY;
     mesh.position.set(pos.x, wy, pos.z);
