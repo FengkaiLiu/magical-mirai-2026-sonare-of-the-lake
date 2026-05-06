@@ -1,5 +1,11 @@
 /**
  * main.js — Boots GameScene. One scene, one session, no swap.
+ *
+ * The loading bar aggregates five real preload stages, weighted roughly by
+ * the work each one represents.  Start enables only when every stage hits
+ * 1.0 — never on a cosmetic timer.  A 60 s watchdog force-enables Start if
+ * something hangs (e.g. TextAlive API blocked, GLB fetch failed) so the
+ * user is never permanently stuck on the intro screen.
  */
 
 import * as THREE from "three";
@@ -9,39 +15,46 @@ import { GameScene } from "./game-scene.js";
 const engine = new Engine(document.getElementById("app"));
 const scene  = new GameScene(engine);
 
-// ── Loading progress UI ───────────────────────────────────────────────────────
+// ── DOM refs ─────────────────────────────────────────────────────────────────
 const progressFill = document.getElementById("intro-progress-fill");
 const progressPct  = document.getElementById("intro-progress-pct");
 const progressWrap = document.getElementById("intro-progress-wrap");
 const startBtn     = document.getElementById("intro-start-btn");
 
-THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => {
-  const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
-  if (progressFill) progressFill.style.width = pct + "%";
+// ── Loading stages ───────────────────────────────────────────────────────────
+// Weights mirror the dominant cost of each stage so the bar moves at honest
+// speed.  Total must sum to 1.
+//   GLBs    (~5–10 MB)            → 25 %
+//   Fonts   (~10 MB across faces) → 10 %
+//   Shaders (compileAsync)        →  5 %
+//   Songs   (timer-ready, 6 × ~3–5 MB audio + TextAlive metadata) → 45 %
+//   Prewarm (per-phrase glyph sampling, 6 songs)                  → 15 %
+const stages = {
+  glbs:    { weight: 0.25, progress: 0 },
+  fonts:   { weight: 0.10, progress: 0 },
+  shaders: { weight: 0.05, progress: 0 },
+  songs:   { weight: 0.45, progress: 0 },
+  prewarm: { weight: 0.15, progress: 0 },
+};
+
+let started = false;
+function applyProgress() {
+  let total = 0;
+  for (const s of Object.values(stages)) total += s.weight * s.progress;
+  const pct = Math.min(100, Math.round(total * 100));
+  if (progressFill) progressFill.style.width  = pct + "%";
   if (progressPct)  progressPct.textContent   = pct + "%";
-};
+  if (total >= 0.9999 && !started) {
+    started = true;
+    revealAndEnable();
+  }
+}
 
-THREE.DefaultLoadingManager.onLoad = () => {
-  if (progressFill) progressFill.style.width = "100%";
-  if (progressPct)  progressPct.textContent  = "100%";
-
-  // Pre-compile all shaders during the 2 s hold so the first visible render is stutter-free.
-  Promise.resolve().then(() => {
-    if (engine.renderer.compileAsync) {
-      engine.renderer.compileAsync(engine.scene, engine.camera);
-    } else {
-      engine.renderer.compile(engine.scene, engine.camera);
-    }
-  });
-
-  setTimeout(() => {
-    fadeOutReveal();
-    setTimeout(() => {
-      progressWrap?.classList.add("hidden");
-      if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
-    }, 0);
-  }, 2000);
-};
+function revealAndEnable() {
+  fadeOutReveal();
+  progressWrap?.classList.add("hidden");
+  if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
+}
 
 function fadeOutReveal() {
   const el = document.getElementById("circle-reveal");
@@ -51,19 +64,68 @@ function fadeOutReveal() {
   setTimeout(() => el.classList.add("gone"), 1500);
 }
 
-// Fallback: if nothing triggers onLoad within 5 s (all assets cached), show Start.
-setTimeout(() => {
-  if (startBtn && !startBtn.classList.contains("ready")) {
-    if (progressFill) progressFill.style.width = "100%";
-    if (progressPct)  progressPct.textContent  = "100%";
-    fadeOutReveal();
-    setTimeout(() => {
-      progressWrap?.classList.add("hidden");
-      if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
-    }, 1500);
-  }
-}, 5000);
+// ── Stage 1: GLBs (Three.js DefaultLoadingManager) ───────────────────────────
+THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => {
+  stages.glbs.progress = total > 0 ? loaded / total : 0;
+  applyProgress();
+};
+THREE.DefaultLoadingManager.onLoad = () => {
+  stages.glbs.progress = 1;
+  applyProgress();
+  // Stage 3: shader compile only starts after geometry is in.
+  Promise.resolve().then(async () => {
+    try {
+      if (engine.renderer.compileAsync) {
+        await engine.renderer.compileAsync(engine.scene, engine.camera);
+      } else {
+        engine.renderer.compile(engine.scene, engine.camera);
+      }
+    } catch (e) {
+      console.warn("[main] Shader compile failed — continuing anyway.", e);
+    }
+    stages.shaders.progress = 1;
+    applyProgress();
+  });
+};
 
+// ── Stage 2: Fonts (CSS @font-face + document.fonts.load calls in modules) ──
+// document.fonts.ready resolves once every font.load() queued before access has
+// finished.  All our load() calls live at module top level, so they're queued
+// by the time main.js runs this line.
+document.fonts.ready.then(() => {
+  stages.fonts.progress = 1;
+  applyProgress();
+}).catch((e) => {
+  console.warn("[main] Font preload failed — continuing.", e);
+  stages.fonts.progress = 1; // don't strand the bar
+  applyProgress();
+});
+
+// ── Stages 4 & 5: Songs (timer-ready) + Prewarm (glyph sampling) ────────────
+scene.onPreloadProgress = (timerFrac, prewarmFrac) => {
+  stages.songs.progress   = timerFrac;
+  stages.prewarm.progress = prewarmFrac;
+  applyProgress();
+};
+
+// ── Watchdog ────────────────────────────────────────────────────────────────
+// 60 s is generous enough for slow connections to finish all 6 songs at
+// reasonable bandwidth, but short enough that a hard failure (CSP block,
+// TextAlive outage, 404) doesn't trap the user forever.  Inside-game fallbacks
+// in _activatePlay handle individual song failures.
+setTimeout(() => {
+  if (!started) {
+    console.warn("[main] Loading watchdog tripped — forcing ready state.", {
+      stages: Object.fromEntries(
+        Object.entries(stages).map(([k, v]) => [k, v.progress.toFixed(2)])
+      ),
+    });
+    for (const s of Object.values(stages)) s.progress = 1;
+    applyProgress();
+  }
+}, 60000);
+
+// ── Wiring ──────────────────────────────────────────────────────────────────
 startBtn?.addEventListener("click", () => {
   startBtn.disabled = true;
   scene.beginIntroSequence();

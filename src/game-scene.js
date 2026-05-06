@@ -63,12 +63,25 @@ export class GameScene {
     this.player       = null;
     this.audioContext = null;
 
+    // ── Preload progress reporting ─────────────────────────────────────────
+    // main.js subscribes to onPreloadProgress to drive the loading bar; we
+    // report two fractions: how many songs are timer-ready (audio+timer
+    // pipeline live) and how many have finished glyph-prewarm (lyric cache
+    // primed).  Counted per-song with idempotent guards so a Player restart
+    // inside _ensurePreloadedPlayer can't double-increment.
+    this._readyTimerCount   = 0;
+    this._readyPrewarmCount = 0;
+    this.onPreloadProgress  = null; // (timerFrac, prewarmFrac) => void
+
     // Kick off TextAlive preloading for all songs, staggered 300 ms apart so we
     // don't hammer the TextAlive API with 6 simultaneous requests (which can cause
-    // silent failures).  The intro sequence takes ~10 s before the user can select
-    // anything, so all songs will be fully loaded well before then.
+    // silent failures).
     this._preloadedSongs = SONGS.map((song, i) => {
-      const entry = { player: null, audioEl: null, video: null, timerReady: false, managed: false };
+      const entry = {
+        player: null, audioEl: null, video: null,
+        timerReady: false, managed: false,
+        _timerCounted: false, _prewarmCounted: false,
+      };
       setTimeout(() => { if (!this._disposed) this._startPreload(song, entry); }, i * 300);
       return entry;
     });
@@ -109,12 +122,32 @@ export class GameScene {
             FishLyricSystem.prewarmPhrase(text); // lake-view formation cache
             LyricManager.prewarmPhrase(text);   // sky-view chorus cache
             requestAnimationFrame(step);
+          } else if (!entry._prewarmCounted) {
+            // Queue drained (including the empty-queue case): mark prewarm done.
+            entry._prewarmCounted = true;
+            this._readyPrewarmCount++;
+            this._reportPreloadProgress();
           }
         };
         requestAnimationFrame(step);
       },
-      onTimerReady: () => { entry.timerReady = true; },
+      onTimerReady: () => {
+        entry.timerReady = true;
+        if (!entry._timerCounted) {
+          entry._timerCounted = true;
+          this._readyTimerCount++;
+          this._reportPreloadProgress();
+        }
+      },
     });
+  }
+
+  /** Push current preload progress to main.js for the loading-bar aggregator. */
+  _reportPreloadProgress() {
+    this.onPreloadProgress?.(
+      this._readyTimerCount   / SONGS.length,
+      this._readyPrewarmCount / SONGS.length,
+    );
   }
 
   /** Apply BPM-derived sky convergence time once this.lyrics exists. */
