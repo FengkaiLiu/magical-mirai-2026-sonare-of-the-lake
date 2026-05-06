@@ -31,7 +31,7 @@ export class CameraController {
     this.isIntro        = !skipIntro;
     this._diveStarted   = false;
     this._diveTimer     = 0;
-    this._diveDuration  = 3.5;   // seconds — long enough to feel dramatic
+    this._diveDuration  = 4.5;   // seconds — slower fall reads as graceful, not abrupt
     this.onDiveComplete = null;  // optional callback
     this.revealLock          = false; // when true, camera holds position while boat enters
     this._revealTransition   = 0;    // counts up after revealLock releases to ease smoothing in
@@ -45,6 +45,19 @@ export class CameraController {
     this._diveGoalLook = new THREE.Vector3();
     this._introLockPos = new THREE.Vector3(0, 90, 0);
     this._zeroVec      = new THREE.Vector3(0, 0, 0);
+
+    // Single-segment dive — quadratic bezier carves a slide-shape from
+    // the overhead pose down to the boat-follow pose. The control point
+    // sits at the "knee" of the slide (already low, not yet pushed forward),
+    // so the path drops near-vertically at first then curves out horizontal.
+    // Combined with easeInOutCubic on time, this gives accel-down → decel-out,
+    // and the pitch tilt-up at the end emerges geometrically (no second curve
+    // needed) as the camera slips under the lookAt point.
+    this._divePosP0 = new THREE.Vector3(0, 90, 0);
+    this._divePosP1 = new THREE.Vector3(0,  8, 0);
+    this._divePosP2 = new THREE.Vector3(0, this.height, this.distance);
+    this._diveLookP0 = new THREE.Vector3(0, 0, 0);
+    this._diveLookP1 = new THREE.Vector3(0, 0, -this.lookAhead);
 
     // Start at the appropriate position — overhead for intro, boat-follow for direct play
     if (skipIntro) {
@@ -66,9 +79,10 @@ export class CameraController {
   }
 
   /**
-   * Begin the dramatic camera dive from overhead to boat-follow position.
-   * The camera uses a boosted smoothing factor so it covers the distance in
-   * roughly _diveDuration seconds.  FOV is stretched 50→75→60 for speed feel.
+   * Begin the cinematic camera dive from overhead to boat-follow position.
+   * The trajectory is a single quadratic bezier (slide-shaped path) sampled
+   * with linear time, so the camera starts moving immediately and decelerates
+   * naturally as the curve flattens out. FOV lerps 50→60 throughout.
    */
   startDive() {
     if (!this.isIntro) return;
@@ -98,26 +112,25 @@ export class CameraController {
       return;
     }
 
-    // ── State 2: Dive — lerp toward fixed boat-at-origin position ──
-    // Target is fixed (origin follow pos), NOT the moving boat, so there
-    // is no jitter from boat physics influencing the dive trajectory.
+    // ── State 2: Dive — single smooth slide-shaped curve ─────────
+    // Time is linear: the bezier's own geometry decelerates the camera as
+    // it curves into the horizontal exit, so an extra easeInOut would only
+    // reintroduce the wind-up dwell at the top. Result: motion starts
+    // immediately at the press, falls fastest near the top, and settles
+    // gently as it slips under the lookAt point.
     if (this._diveStarted) {
       this._diveTimer += dt;
       const t = Math.min(1, this._diveTimer / this._diveDuration);
 
-      // FOV arc: 50 → 75 (widening rush) → 60 (narrowing brake)
-      const fovBase = 50, fovPeak = 75, fovLand = 60;
-      this.camera.fov = t < 0.5
-        ? fovBase + (fovPeak - fovBase) * (t * 2)
-        : fovPeak + (fovLand - fovPeak) * ((t - 0.5) * 2);
-      this.camera.updateProjectionMatrix();
+      this._sampleDive(t, this._diveGoalPos, this._diveGoalLook);
+      this.currentPos.copy(this._diveGoalPos);
+      this.currentLook.copy(this._diveGoalLook);
 
-      // Fixed landing target: where the camera sits when boat is at origin
-      this._diveGoalPos.set(0, this.height, this.distance);
-      this._diveGoalLook.set(0, 0, -this.lookAhead);
-      const alpha = 1 - Math.pow(1 - 0.02, dt * 60);
-      this.currentPos.lerp(this._diveGoalPos, alpha);
-      this.currentLook.lerp(this._diveGoalLook, alpha);
+      // FOV: plain lerp from intro (50) to follow (60) — no mid-flight
+      // widening, since the bezier's own speed feel carries the dive.
+      const fovBase = 50, fovLand = 60;
+      this.camera.fov = fovBase + (fovLand - fovBase) * t;
+      this.camera.updateProjectionMatrix();
 
       this.camera.position.copy(this.currentPos);
       this.camera.lookAt(this.currentLook);
@@ -181,6 +194,19 @@ export class CameraController {
     );
 
     this.camera.lookAt(this.currentLook);
+  }
+
+  _sampleDive(t01, outPos, outLook) {
+    const e = Math.max(0, Math.min(1, t01)); // linear — bezier shape provides decel
+    const u = 1 - e;
+    const w0 = u * u, w1 = 2 * u * e, w2 = e * e;
+    const p0 = this._divePosP0, p1 = this._divePosP1, p2 = this._divePosP2;
+    outPos.set(
+      w0 * p0.x + w1 * p1.x + w2 * p2.x,
+      w0 * p0.y + w1 * p1.y + w2 * p2.y,
+      w0 * p0.z + w1 * p1.z + w2 * p2.z,
+    );
+    outLook.copy(this._diveLookP0).lerp(this._diveLookP1, e);
   }
 
   dispose() {
