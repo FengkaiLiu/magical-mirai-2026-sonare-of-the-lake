@@ -118,15 +118,14 @@ export class CameraController {
       return;
     }
 
-    // ── State 2: Dive — linear time into bezier slide ────────────────
-    // rawT drives the bezier directly (no ease-in), so the camera starts
-    // moving immediately at full pace. The bezier's geometry flattens near P2,
-    // providing natural deceleration into the landing without any secondary
-    // easing. FOV stays fixed at 60 — no zoom effect during the dive.
+    // ── State 2: Dive — ease-in time into bezier slide ─────────────────
+    // rawT²  gives a smooth acceleration from rest at the start; the bezier's
+    // geometry (curve flattens near P2) still provides natural deceleration
+    // into the landing, so the overall feel is: slow start → build speed → settle.
     if (this._diveStarted) {
       this._diveTimer += dt;
       const rawT = Math.min(1, this._diveTimer / this._diveDuration);
-      const t = rawT; // linear — bezier geometry provides deceleration at landing
+      const t = rawT * rawT; // ease-in quad — starts slow, then accelerates
 
       this._sampleDive(t, this._diveGoalPos, this._diveGoalLook);
       this.currentPos.copy(this._diveGoalPos);
@@ -223,7 +222,7 @@ export class CameraController {
   }
 
   _sampleDive(t01, outPos, outLook) {
-    const e = Math.max(0, Math.min(1, t01)); // linear — bezier shape provides decel
+    const e = Math.max(0, Math.min(1, t01));
     const u = 1 - e;
     const w0 = u * u, w1 = 2 * u * e, w2 = e * e;
     const p0 = this._divePosP0, p1 = this._divePosP1, p2 = this._divePosP2;
