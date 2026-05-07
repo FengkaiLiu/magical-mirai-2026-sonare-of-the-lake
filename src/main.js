@@ -51,10 +51,15 @@ function applyProgress() {
   // ~15 ms hitch on its first render (still much better than the per-phrase
   // jitter we had before any prewarm existed).  The bar keeps moving past
   // this point until prewarm completes, so progress stays honest.
+  //
+  // Songs threshold is 0.8 (≥ 5 of 6) rather than 1.0 so that a single song
+  // whose Songle beat-sync timer is slow or failing doesn't hold the whole
+  // loading screen hostage.  _activatePlay already handles individual song
+  // fallbacks, so picking the one not-yet-ready song is safe.
   const coreReady = stages.glbs.progress    >= 1
                  && stages.fonts.progress   >= 1
                  && stages.shaders.progress >= 1
-                 && stages.songs.progress   >= 1;
+                 && stages.songs.progress   >= 0.8;
   if (coreReady && !started) {
     started = true;
     revealAndEnable();
@@ -120,10 +125,9 @@ scene.onPreloadProgress = (timerFrac, prewarmFrac) => {
 };
 
 // ── Watchdog ────────────────────────────────────────────────────────────────
-// 60 s is generous enough for slow connections to finish all 6 songs at
-// reasonable bandwidth, but short enough that a hard failure (CSP block,
-// TextAlive outage, 404) doesn't trap the user forever.  Inside-game fallbacks
-// in _activatePlay handle individual song failures.
+// 20 s catches hard failures (TextAlive outage, CSP block, 404) without making
+// the user wait a full minute.  The songs threshold (0.8) already handles the
+// common case of 1 slow-timer song, so the watchdog is a genuine last resort.
 setTimeout(() => {
   if (!started) {
     console.warn("[main] Loading watchdog tripped — forcing ready state.", {
@@ -134,7 +138,7 @@ setTimeout(() => {
     for (const s of Object.values(stages)) s.progress = 1;
     applyProgress();
   }
-}, 60000);
+}, 20000);
 
 // ── Wiring ──────────────────────────────────────────────────────────────────
 startBtn?.addEventListener("click", () => {

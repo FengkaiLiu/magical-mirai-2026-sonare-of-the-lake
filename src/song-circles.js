@@ -496,14 +496,19 @@ class SongCircle {
       this._ringPuTgt   = 0;
 
     } else if (this._state === STATE.IDLE) {
+      const lf = Math.min(1, dt * 8.0);
       for (let i = 0; i < n; i++) {
         const i3 = i * 3;
         const wave = Math.sin(elapsed * 1.7 + this._orbitPhase[i]) * 0.12
                    + Math.sin(elapsed * 3.4 + this._orbitAng[i] * 1.7) * 0.05;
         const r  = this._orbitR[i] * (0.88 + wave);
-        pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
+        // Lerp toward wave target instead of direct assignment — eliminates the
+        // position snap when entering from GATHERING (orbitR*1.0) or RETURNING.
+        const tx = cx + Math.cos(this._orbitAng[i]) * r;
+        const tz = cz + Math.sin(this._orbitAng[i]) * r;
+        pos[i3]     += (tx - pos[i3])     * lf;
+        pos[i3 + 2] += (tz - pos[i3 + 2]) * lf;
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
-        pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
       }
       this._pulseEnvTgt = 0;
       this._compactTgt  = 0;
@@ -529,9 +534,13 @@ class SongCircle {
           if (d > 0.04) { const m = Math.min(FORM_SPEED * dt, d); pos[i3] += (dx/d)*m; pos[i3+2] += (dz/d)*m; }
           else           { pos[i3] = tx; pos[i3 + 2] = tz; }
         } else {
+          // Lerp toward compact target — smooth entry from IDLE's 0.88*orbitR base.
           const r = this._orbitR[i] * orbitMul;
-          pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
-          pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
+          const tx = cx + Math.cos(this._orbitAng[i]) * r;
+          const tz = cz + Math.sin(this._orbitAng[i]) * r;
+          const lf = Math.min(1, dt * 8.0);
+          pos[i3]     += (tx - pos[i3])     * lf;
+          pos[i3 + 2] += (tz - pos[i3 + 2]) * lf;
         }
         pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
       }

@@ -46,6 +46,12 @@ export class CameraController {
     this._introLockPos = new THREE.Vector3(0, 90, 0);
     this._zeroVec      = new THREE.Vector3(0, 0, 0);
 
+    // Reveal-lock frozen pose — camera renders here while currentPos silently
+    // catches up to the boat, so when the lock releases the transition is seamless.
+    this._frozenPos         = new THREE.Vector3();
+    this._frozenLook        = new THREE.Vector3();
+    this._revealLockEntered = false;
+
     // Single-segment dive — quadratic bezier carves a slide-shape from
     // the overhead pose down to the boat-follow pose. The control point
     // sits at the "knee" of the slide (already low, not yet pushed forward),
@@ -112,33 +118,25 @@ export class CameraController {
       return;
     }
 
-    // ── State 2: Dive — single smooth slide-shaped curve ─────────
-    // Time is linear: the bezier's own geometry decelerates the camera as
-    // it curves into the horizontal exit, so an extra easeInOut would only
-    // reintroduce the wind-up dwell at the top. Result: motion starts
-    // immediately at the press, falls fastest near the top, and settles
-    // gently as it slips under the lookAt point.
+    // ── State 2: Dive — linear time into bezier slide ────────────────
+    // rawT drives the bezier directly (no ease-in), so the camera starts
+    // moving immediately at full pace. The bezier's geometry flattens near P2,
+    // providing natural deceleration into the landing without any secondary
+    // easing. FOV stays fixed at 60 — no zoom effect during the dive.
     if (this._diveStarted) {
       this._diveTimer += dt;
-      const t = Math.min(1, this._diveTimer / this._diveDuration);
+      const rawT = Math.min(1, this._diveTimer / this._diveDuration);
+      const t = rawT; // linear — bezier geometry provides deceleration at landing
 
       this._sampleDive(t, this._diveGoalPos, this._diveGoalLook);
       this.currentPos.copy(this._diveGoalPos);
       this.currentLook.copy(this._diveGoalLook);
 
-      // FOV: plain lerp from intro (50) to follow (60) — no mid-flight
-      // widening, since the bezier's own speed feel carries the dive.
-      const fovBase = 50, fovLand = 60;
-      this.camera.fov = fovBase + (fovLand - fovBase) * t;
-      this.camera.updateProjectionMatrix();
-
       this.camera.position.copy(this.currentPos);
       this.camera.lookAt(this.currentLook);
 
-      if (t >= 1) {
+      if (rawT >= 1) {
         this._diveStarted = false;
-        this.camera.fov = fovLand;
-        this.camera.updateProjectionMatrix();
         if (this.onDiveComplete) {
           this.onDiveComplete();
           this.onDiveComplete = null;
@@ -151,12 +149,39 @@ export class CameraController {
     // Song-select sets this while the boat entrance animation plays.
     // It is cleared externally (cam.revealLock = false) once the boat
     // has reached the center.
+    //
+    // The rendered pose is frozen in _frozenPos/_frozenLook (captured on the
+    // first locked frame), but currentPos/currentLook silently lerp toward
+    // the boat's follow goal during the lock. When the lock releases, the
+    // hand-off gap is near-zero so State 4 starts with no visible slide.
     if (this.revealLock) {
-      this._revealTransition = 0; // reset while locked
-      this.camera.position.copy(this.currentPos);
-      this.camera.lookAt(this.currentLook);
+      if (!this._revealLockEntered) {
+        this._frozenPos.copy(this.currentPos);
+        this._frozenLook.copy(this.currentLook);
+        this._revealLockEntered = true;
+      }
+      if (this._boatRef) {
+        const bp = this._boatRef.getPosition();
+        this._goalPos.set(bp.x, bp.y + this.height, bp.z + this.distance);
+        this._goalLook.set(bp.x, 0, bp.z - this.lookAhead);
+        const catchAlpha = 1 - Math.pow(1 - 0.06, dt * 60);
+        this.currentPos.lerp(this._goalPos, catchAlpha);
+        this.currentLook.lerp(this._goalLook, catchAlpha);
+      }
+      this._revealTransition = 0;
+      this.camera.position.copy(this._frozenPos);
+      this.camera.lookAt(this._frozenLook);
       return;
     }
+    // First frame after revealLock releases: sync currentPos/currentLook back to the
+    // frozen pose so State 4 starts from exactly the last rendered position.
+    // The silent catch-up may have drifted currentPos toward the moving boat,
+    // causing a snap if we don't reset here.
+    if (this._revealLockEntered) {
+      this.currentPos.copy(this._frozenPos);
+      this.currentLook.copy(this._frozenLook);
+    }
+    this._revealLockEntered = false;
 
     // ── State 4: Normal boat follow ────────────────────────────────
     if (this._boatRef) this.targetPos = this._boatRef.getPosition();
@@ -186,10 +211,11 @@ export class CameraController {
     this.currentPos.lerp(this._goalPos, alpha);
     this.currentLook.lerp(this._goalLook, alpha);
 
-    // Subtle camera bob
+    // Bob fades in with easedT so it's zero at revealLock release and reaches
+    // full amplitude once the smoothing ramp completes — no sudden appearance of sway.
     this.camera.position.set(
-      this.currentPos.x + Math.sin(elapsed * 0.08) * 0.04,
-      this.currentPos.y + Math.sin(elapsed * 0.11) * 0.03,
+      this.currentPos.x + Math.sin(elapsed * 0.08) * 0.04 * easedT,
+      this.currentPos.y + Math.sin(elapsed * 0.11) * 0.03 * easedT,
       this.currentPos.z
     );
 
