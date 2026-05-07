@@ -24,6 +24,7 @@ import { FishLyricSystem } from "./fish-lyric-system.js";
 import { SongCircleSystem } from "./song-circles.js";
 import { WaterObjects } from "./water-objects.js";
 import { WASDHint } from "./wasd-hint.js";
+import { ReturnCircle } from "./return-circle.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -61,11 +62,15 @@ export class GameScene {
     document.getElementById("overlay")?.classList.add("hidden");
 
     // ── Play-state resources (null until _activatePlay) ────────────────────
-    this.lyrics       = null;
-    this.fishLyrics   = null;
-    this.waterObjects = null;
-    this.player       = null;
-    this.audioContext = null;
+    this.lyrics            = null;
+    this.fishLyrics        = null;
+    this.waterObjects      = null;
+    this.player            = null;
+    this.audioContext      = null;
+    this._lyricGate        = null;
+    this._activeSongIndex  = -1;
+    this._lastPhraseForGate = null;
+    this._endingTriggered  = false;
 
     // ── Preload progress reporting ─────────────────────────────────────────
     // main.js subscribes to onPreloadProgress to drive the loading bar; we
@@ -342,6 +347,11 @@ export class GameScene {
 
   _activatePlay(songIndex) {
     this._state = "play";
+    this._activeSongIndex   = songIndex;
+    this._endingTriggered   = false;
+    this._lastPhraseForGate = null;
+    this._lyricGate?.dispose();
+    this._lyricGate = null;
     const song = SONGS[songIndex];
     const pre  = this._ensurePreloadedPlayer(songIndex, song);
 
@@ -512,8 +522,18 @@ export class GameScene {
     if (phraseText !== this._lastPhrase) {
       this._lastPhrase = phraseText;
       if (phraseText) {
+        this._lastPhraseForGate = phraseText;
         if (this.skyMode) this.lyrics.addPhrase(phraseText);
         else              this.fishLyrics.addPhrase(phraseText);
+      }
+    }
+
+    // Detect song end: trigger ending sequence ~800 ms before song finishes
+    if (!this._endingTriggered) {
+      const dur = this.player.video?.duration;
+      if (dur && pos >= dur - 800) {
+        this._endingTriggered = true;
+        setTimeout(() => this._beginEnding(), 1200);
       }
     }
   }
@@ -566,6 +586,91 @@ export class GameScene {
     this.player.isPlaying ? this.player.requestPause() : this.player.requestPlay();
   }
 
+  // ── Song end → gate → return to select ────────────────────────────────────
+
+  _beginEnding() {
+    if (this._state !== "play") return;
+    this._state = "ending";
+    this._playbackStarted = false; // stop lyric dispatch
+
+    // Copy last lyric formation particle positions NOW, before any fade/dispose
+    const formations = this.fishLyrics?._formations;
+    const lastForm   = formations?.[formations.length - 1];
+    const startPos   = lastForm ? new Float32Array(lastForm.posArray) : null;
+
+    // Fade out HUD
+    const hud = document.getElementById("hud");
+    if (hud) { hud.style.transition = "opacity 2.0s ease"; hud.style.opacity = "0"; }
+
+    const color = SONGS[this._activeSongIndex]?.theme?.particle ?? 0x88eeff;
+
+    // Brief pause, then spawn ReturnCircle — particles gather from last lyric position
+    setTimeout(() => {
+      if (this._disposed || this._state !== "ending") return;
+      this._lyricGate = new ReturnCircle(
+        this.engine, this.boat, color, startPos,
+        () => this._resetToSelect(),
+      );
+    }, 1500);
+  }
+
+  _resetToSelect() {
+    if (this._disposed) return;
+
+    // Tear down all play-state resources
+    this._lyricGate?.dispose();
+    this._lyricGate = null;
+    this.waterObjects?.dispose();
+    this.waterObjects = null;
+    this.fishLyrics?.dispose();
+    this.fishLyrics = null;
+    this.lyrics?.dispose();
+    this.lyrics = null;
+
+    try { this.player?.requestPause(); } catch {}
+    this.audioContext?.close();
+    this.audioContext = null;
+
+    if (this._onVisibilityChange) {
+      document.removeEventListener("visibilitychange", this._onVisibilityChange);
+      this._onVisibilityChange = null;
+    }
+    if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
+
+    // Hide HUD
+    const hud = document.getElementById("hud");
+    if (hud) {
+      hud.style.transition = "opacity 0.8s ease";
+      hud.style.opacity = "0";
+      setTimeout(() => hud.classList.remove("visible"), 900);
+    }
+
+    // Reset sky mode
+    if (this.skyMode) {
+      this.skyMode = false;
+      this.cam.setSkyMode(false);
+    }
+
+    // Re-create select-state resources
+    this._introActive    = false;
+    this._endingTriggered = false;
+    this._lastPhraseForGate = null;
+
+    this.songCircles = new SongCircleSystem(this.engine, this.boat, (songIndex) => {
+      if (this._state !== "select" || this.cam.revealLock) return;
+      this._beginTransition(songIndex);
+    });
+
+    this.wasdHint = new WASDHint(this.engine, this.boat);
+    this.wasdHint.show();
+
+    const hint = document.getElementById("select-hint");
+    if (hint) hint.style.display = "block";
+
+    this.controls.locked = false;
+    this._state = "select";
+  }
+
   // ── Full teardown ──────────────────────────────────────────────────────────
 
   dispose() {
@@ -578,6 +683,9 @@ export class GameScene {
     }
 
     if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
+
+    this._lyricGate?.dispose();
+    this._lyricGate = null;
 
     // Dispose all preloaded players (including whichever one is currently in use).
     for (const pre of this._preloadedSongs ?? []) pre.player?.dispose();

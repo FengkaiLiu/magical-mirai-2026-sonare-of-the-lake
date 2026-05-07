@@ -1,0 +1,686 @@
+/**
+ * ReturnCircle — a SongCircle-style portal that appears after a song ends.
+ *
+ * Particles gather from the last lyric formation into an orbit ring.
+ * Boat enters → "Return to Title" text forms.
+ * Boat stays (or presses Enter) → TITLE_FADE → onReturn fires.
+ * A dotted guide line floats on the water surface pointing from the
+ * circle toward the boat while they are apart.
+ */
+
+import * as THREE from "three";
+import { waveHeight } from "./boat.js";
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+const COUNT       = 1200;
+const CIRCLE_R    = 2.2;
+const ORBIT_SPEED = 0.38;
+const GATHER_SPEED = 5.0;
+const FORM_SPEED   = 9.0;
+const SPAWN_DIST   = 15;   // world units ahead of boat
+const TEXT_W       = 34.0;
+const TEXT_H       = 7.2;
+const TEXT_FORWARD = -4.0; // Z offset from circle center where text forms
+const GUIDE_COUNT  = 9;    // particles in the dotted guide line
+const DWELL_RETURN = 2.5;  // seconds in ACTIVE before auto-return
+
+// ── States ────────────────────────────────────────────────────────────────────
+
+const STATE = Object.freeze({
+  GATHERING:  "gathering",
+  IDLE:       "idle",
+  ACTIVATING: "activating",
+  ACTIVE:     "active",
+  RETURNING:  "returning",
+  TITLE_FADE: "titleFade",
+});
+
+// ── Shaders (mirrors SongCircle exactly) ──────────────────────────────────────
+
+const _vert = /* glsl */ `
+  attribute float aSize;
+  attribute float aAlpha;
+  uniform  float uPulse;
+  varying  float vAlpha;
+  void main() {
+    vAlpha = aAlpha;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float pulse = 1.0 + uPulse * 0.28;
+    gl_PointSize = aSize * pulse * (300.0 / -mv.z);
+    gl_Position  = projectionMatrix * mv;
+  }
+`;
+
+const _frag = /* glsl */ `
+  uniform vec3  uColor;
+  uniform float uAlphaMul;
+  uniform float uPulse;
+  varying float vAlpha;
+  void main() {
+    float d    = length(gl_PointCoord - vec2(0.5));
+    if (d > 0.5) discard;
+    float core = exp(-d * d * 28.0);
+    float halo = exp(-d * d * 7.0) * 0.55;
+    float glow = (core + halo) * 5.5;
+    vec3  hotCol = mix(uColor, vec3(1.3, 1.3, 1.3), uPulse * 0.42);
+    vec3  col    = hotCol * glow + vec3(1.0) * core * (0.4 + uPulse * 0.32);
+    gl_FragColor = vec4(col, vAlpha * glow * uAlphaMul);
+  }
+`;
+
+const _ringVert = /* glsl */ `
+  varying vec2  vUv;
+  uniform float uTime;
+  uniform float uPulse;
+  void main() {
+    vUv = uv;
+    vec3 pos = position;
+    float angle = atan(pos.z, pos.x);
+    float wave  = sin(angle * 4.0 + uTime * 2.6) * 0.07
+                + sin(angle * 2.0 - uTime * 1.8) * 0.045
+                + sin(angle * 7.0 + uTime * 4.2) * 0.018;
+    pos.y += wave * (1.0 + uPulse * 0.9);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+  }
+`;
+
+const _ringFrag = /* glsl */ `
+  varying vec2  vUv;
+  uniform vec3  uColor;
+  uniform float uOpacity;
+  uniform float uPulse;
+  void main() {
+    float dist  = abs(vUv.y - 0.5) * 2.0;
+    float core  = exp(-dist * dist * 14.0);
+    float halo  = exp(-dist * dist * 3.0) * 0.55;
+    float glow  = core + halo;
+    float bright = 1.7 + uPulse * 1.5;
+    vec3  col   = uColor * bright * glow
+                + vec3(1.0) * core * (0.55 + uPulse * 0.55);
+    gl_FragColor = vec4(col, glow * uOpacity);
+  }
+`;
+
+// Simple guide-dot shader
+const _guideVert = /* glsl */ `
+  attribute float aSize;
+  attribute float aPhase;
+  uniform  float uTime;
+  void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float pulse = 0.7 + 0.3 * sin(uTime * 3.0 + aPhase);
+    gl_PointSize = aSize * pulse * (200.0 / -mv.z);
+    gl_Position  = projectionMatrix * mv;
+  }
+`;
+
+const _guideFrag = /* glsl */ `
+  uniform vec3  uColor;
+  uniform float uAlpha;
+  void main() {
+    float d = length(gl_PointCoord - vec2(0.5));
+    if (d > 0.5) discard;
+    float glow = exp(-d * d * 10.0) * 2.2;
+    gl_FragColor = vec4(uColor * glow, uAlpha * glow);
+  }
+`;
+
+// ── Text sampling (same style as SongCircle) ──────────────────────────────────
+
+function sampleText(text, count) {
+  const cw = 2048, ch = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = cw; canvas.height = ch;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, cw, ch);
+
+  let sz = 72;
+  const fnt = s => `bold ${s}px "Caveat","KiwiMaru","M PLUS Rounded 1c","Yu Gothic",sans-serif`;
+  ctx.font = fnt(sz);
+  while (ctx.measureText(text).width > cw * 0.88 && sz > 14) { sz -= 2; ctx.font = fnt(sz); }
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, cw / 2, ch / 2);
+
+  const px = ctx.getImageData(0, 0, cw, ch).data;
+  const white = [];
+  for (let y = 0; y < ch; y++)
+    for (let x = 0; x < cw; x++)
+      if (px[(y * cw + x) * 4] > 128) white.push({ x, y });
+
+  if (!white.length) return [];
+  const step = Math.max(1, white.length / count);
+  const pts  = [];
+  for (let i = 0; i < count && Math.floor(i * step) < white.length; i++) {
+    const p = white[Math.floor(i * step)];
+    pts.push({ lx: p.x / cw - 0.5, ly: 0.5 - p.y / ch });
+  }
+  return pts;
+}
+
+// ── ReturnCircle ──────────────────────────────────────────────────────────────
+
+export class ReturnCircle {
+  /**
+   * @param {object}      engine
+   * @param {object}      boat
+   * @param {number}      particleColor  — hex, from song.theme.particle
+   * @param {Float32Array|null} startPosArray — last lyric formation posArray (copy)
+   * @param {Function}    onReturn       — called when return is confirmed
+   */
+  constructor(engine, boat, particleColor, startPosArray, onReturn) {
+    this.engine    = engine;
+    this.boat      = boat;
+    this._onReturn = onReturn;
+    this._disposed = false;
+    this._state    = STATE.GATHERING;
+    this._stateTime = 0;
+    this._alphaMul  = 0;
+    this._ringFade  = 0;
+
+    const col = new THREE.Color(particleColor ?? 0x88eeff);
+    this._col   = col;
+    this._white = new THREE.Color(1.3, 1.3, 1.3);
+    this._tmp   = new THREE.Color();
+
+    // Smooth visual transition lerp targets
+    this._pulseEnv     = 0; this._pulseEnvTgt  = 0;
+    this._compactBlend = 0; this._compactTgt   = 0;
+    this._ringOpTgt    = 0; this._ringScTgt    = 1.0; this._ringPuTgt = 0;
+
+    // Place circle SPAWN_DIST units ahead of boat
+    const bp = boat.getPosition();
+    const q  = boat.body.quaternion;
+    const rfx = -2 * (q.x * q.z + q.w * q.y);
+    const rfz = -(1 - 2 * (q.x * q.x + q.y * q.y));
+    const rfl = Math.sqrt(rfx * rfx + rfz * rfz) || 1;
+    this.center = new THREE.Vector3(
+      bp.x + (rfx / rfl) * SPAWN_DIST,
+      0,
+      bp.z + (rfz / rfl) * SPAWN_DIST,
+    );
+
+    const n = COUNT;
+    this._n           = n;
+    this._posArr      = new Float32Array(n * 3);
+    this._velArr      = new Float32Array(n * 3);
+    this._sizeArr     = new Float32Array(n);
+    this._alphaArr    = new Float32Array(n);
+    this._orbitAng    = new Float32Array(n);
+    this._orbitR      = new Float32Array(n);
+    this._orbitDir    = new Float32Array(n);
+    this._orbitPhase  = new Float32Array(n);
+    this._targets     = new Float32Array(n * 3);
+    this._hasTarget   = new Uint8Array(n);
+    this._gatherDelay = new Float32Array(n);
+
+    // Seed starting positions from last lyric formation if available
+    if (startPosArray && startPosArray.length >= n * 3) {
+      for (let i = 0; i < n; i++) {
+        this._posArr[i*3]     = startPosArray[i*3];
+        this._posArr[i*3 + 1] = startPosArray[i*3 + 1];
+        this._posArr[i*3 + 2] = startPosArray[i*3 + 2];
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 2 + Math.random() * 10;
+        this._posArr[i*3]     = bp.x + Math.cos(a) * r;
+        this._posArr[i*3 + 1] = 0.12;
+        this._posArr[i*3 + 2] = bp.z + Math.sin(a) * r;
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      this._sizeArr[i]    = 0.12 + Math.random() * 0.09;
+      this._alphaArr[i]   = 0.75 + Math.random() * 0.25;
+      this._orbitAng[i]   = Math.random() * Math.PI * 2;
+      this._orbitR[i]     = CIRCLE_R * (0.28 + Math.random() * 0.72);
+      this._orbitDir[i]   = Math.random() < 0.5 ? 1 : -1;
+      this._orbitPhase[i] = Math.random() * Math.PI * 2;
+    }
+
+    // ── Main particle mesh ────────────────────────────────────────────────────
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(this._posArr, 3));
+    geo.setAttribute("aSize",    new THREE.BufferAttribute(this._sizeArr,  1));
+    geo.setAttribute("aAlpha",   new THREE.BufferAttribute(this._alphaArr, 1));
+    this._uniforms = {
+      uColor:    { value: col.clone() },
+      uAlphaMul: { value: 0 },
+      uPulse:    { value: 0 },
+    };
+    this._pts = new THREE.Points(geo, new THREE.ShaderMaterial({
+      vertexShader:   _vert,
+      fragmentShader: _frag,
+      uniforms:       this._uniforms,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    this._pts.frustumCulled = false;
+    this._pts.renderOrder   = 1;
+    engine.scene.add(this._pts);
+
+    // ── Glow ring ─────────────────────────────────────────────────────────────
+    this._ring = this._makeRing(col);
+
+    // ── Text points ("Return to Title") ───────────────────────────────────────
+    // Defer heavy canvas work to next frame to avoid constructor stutter.
+    this._textPts = null;
+    requestAnimationFrame(() => {
+      if (!this._disposed) this._textPts = sampleText("Return to Title", n);
+    });
+
+    // ── Guide dots (dotted line from circle toward boat) ──────────────────────
+    this._initGuide(col);
+
+    // ── Screen-space hint ─────────────────────────────────────────────────────
+    this._hintEl = document.createElement("div");
+    this._hintEl.id = "return-hint";
+    this._hintEl.innerHTML = `Press <kbd>&#9166; Enter</kbd> to return`;
+    this._hintEl.style.cssText = [
+      "position:fixed", "display:none", "pointer-events:none",
+      "color:#fff", "font-size:0.9rem",
+      `font-family:"Caveat",cursive`,
+      "text-shadow:0 0 8px rgba(255,255,255,0.8)",
+      "transform:translate(-50%,-50%)",
+      "background:rgba(0,0,0,0.25)", "padding:4px 14px",
+      "border-radius:20px", "white-space:nowrap",
+    ].join(";");
+    document.body.appendChild(this._hintEl);
+    this._hintWorldPos = new THREE.Vector3();
+
+    // ── Enter key listener ────────────────────────────────────────────────────
+    this._onKeyDown = (e) => {
+      if (e.key === "Enter" && this._state === STATE.ACTIVE && !this._disposed)
+        this._triggerReturn();
+    };
+    window.addEventListener("keydown", this._onKeyDown);
+
+    engine.addUpdatable(this);
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
+  _makeRing(col) {
+    const geo = new THREE.RingGeometry(CIRCLE_R - 0.28, CIRCLE_R + 0.28, 128, 1);
+    geo.rotateX(-Math.PI / 2);
+    const uniforms = {
+      uTime:    { value: 0 },
+      uColor:   { value: col.clone() },
+      uOpacity: { value: 0 },
+      uPulse:   { value: 0 },
+    };
+    const mat = new THREE.ShaderMaterial({
+      vertexShader: _ringVert, fragmentShader: _ringFrag, uniforms,
+      transparent: true, depthWrite: false,
+      blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(this.center.x, 0, this.center.z);
+    mesh.frustumCulled = false;
+    mesh.renderOrder   = 1;
+    this.engine.scene.add(mesh);
+    return { mesh, uniforms, geo, mat };
+  }
+
+  _initGuide(col) {
+    const pos    = new Float32Array(GUIDE_COUNT * 3);
+    const sizes  = new Float32Array(GUIDE_COUNT);
+    const phases = new Float32Array(GUIDE_COUNT);
+    for (let g = 0; g < GUIDE_COUNT; g++) {
+      // Particles further from circle are slightly larger (closer to boat)
+      sizes[g]  = 0.14 + (g / GUIDE_COUNT) * 0.16;
+      phases[g] = (g / GUIDE_COUNT) * Math.PI * 2;
+    }
+    const geo = new THREE.BufferGeometry();
+    this._guidePosAttr = new THREE.BufferAttribute(pos, 3);
+    geo.setAttribute("position", this._guidePosAttr);
+    geo.setAttribute("aSize",    new THREE.BufferAttribute(sizes,  1));
+    geo.setAttribute("aPhase",   new THREE.BufferAttribute(phases, 1));
+    this._guideUniforms = {
+      uColor: { value: col.clone().multiplyScalar(0.75) },
+      uAlpha: { value: 0 },
+      uTime:  { value: 0 },
+    };
+    const mesh = new THREE.Points(geo, new THREE.ShaderMaterial({
+      vertexShader:   _guideVert,
+      fragmentShader: _guideFrag,
+      uniforms:       this._guideUniforms,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    }));
+    mesh.frustumCulled = false;
+    mesh.renderOrder   = 1;
+    this._guideMesh   = mesh;
+    this._guidePosArr = pos;
+    this._guideAlpha  = 0;
+    this.engine.scene.add(mesh);
+  }
+
+  _assignTextTargets() {
+    if (!this._textPts?.length) return;
+    this._hasTarget.fill(0);
+    const pts = this._textPts;
+    const cx  = this.center.x, cz = this.center.z + TEXT_FORWARD;
+    const n   = this._n, pos = this._posArr;
+    const used = new Uint8Array(n);
+
+    const worldTargets = pts.map((p, idx) => ({
+      idx, tx: cx + p.lx * TEXT_W, tz: cz - p.ly * TEXT_H,
+    }));
+    worldTargets.sort((a, b) => a.tx - b.tx);
+
+    const byX = Array.from({ length: n }, (_, i) => ({ idx: i, x: pos[i * 3] }));
+    byX.sort((a, b) => a.x - b.x);
+
+    for (const { tx, tz, idx } of worldTargets) {
+      const p = pts[idx];
+      let lo = 0, hi = byX.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (byX[mid].x < tx) lo = mid + 1; else hi = mid;
+      }
+      let best = -1, bestD2 = Infinity;
+      const W = 200;
+      for (let fi = Math.max(0, lo - W); fi < Math.min(n, lo + W); fi++) {
+        const fIdx = byX[fi].idx;
+        if (used[fIdx]) continue;
+        const dx = pos[fIdx*3] - tx, dz = pos[fIdx*3+2] - tz;
+        const d2 = dx*dx + dz*dz;
+        if (d2 < bestD2) { bestD2 = d2; best = fIdx; }
+      }
+      if (best < 0) for (const f of byX) { if (!used[f.idx]) { best = f.idx; break; } }
+      if (best >= 0) {
+        used[best] = 1;
+        this._hasTarget[best]      = 1;
+        this._targets[best*3]      = tx;
+        this._targets[best*3 + 1]  = 0;
+        this._targets[best*3 + 2]  = tz;
+      }
+    }
+  }
+
+  _triggerReturn() {
+    if (this._state === STATE.TITLE_FADE) return;
+    const DRIFT = 1.4, cx = this.center.x, cz = this.center.z;
+    for (let i = 0; i < this._n; i++) {
+      const i3 = i * 3;
+      const dx = this._posArr[i3] - cx, dz = this._posArr[i3+2] - cz;
+      const d  = Math.sqrt(dx*dx + dz*dz) || 0.5;
+      const sp = DRIFT * (0.3 + Math.random() * 0.9);
+      this._velArr[i3]     = (dx/d)*sp + (Math.random()-0.5)*0.7;
+      this._velArr[i3 + 2] = (dz/d)*sp + (Math.random()-0.5)*0.7;
+    }
+    this._alphaMul = 2.2;
+    this._uniforms.uAlphaMul.value = 2.2;
+    this._uniforms.uPulse.value    = 1.0;
+    this._ringFade = 1.0;
+    this._ring.uniforms.uColor.value.copy(this._white);
+    this._ring.uniforms.uOpacity.value = 1.8;
+    this._ring.uniforms.uPulse.value   = 1.0;
+    this._state     = STATE.TITLE_FADE;
+    this._stateTime = 0;
+    if (this._hintEl) this._hintEl.style.display = "none";
+    setTimeout(() => this._onReturn?.(), 700);
+  }
+
+  // ── Update ────────────────────────────────────────────────────────────────
+
+  update(dt, elapsed) {
+    if (this._disposed) return;
+
+    this._ring.uniforms.uTime.value  = elapsed;
+    this._guideUniforms.uTime.value  = elapsed;
+    this._stateTime += dt;
+
+    const n = this._n, pos = this._posArr;
+    const cx = this.center.x, cz = this.center.z;
+    const energy = this.engine.env?.smoothedEnergy ?? 0;
+
+    for (let i = 0; i < n; i++) {
+      this._orbitAng[i] += ORBIT_SPEED * this._orbitDir[i] *
+        (0.6 + 0.4 * Math.abs(Math.sin(elapsed * 0.3 + this._orbitPhase[i]))) * dt;
+    }
+
+    const _lrp = (a, b, s) => a + (b - a) * Math.min(1, dt * s);
+    this._pulseEnv     = _lrp(this._pulseEnv,     this._pulseEnvTgt, 4.5);
+    this._compactBlend = _lrp(this._compactBlend, this._compactTgt,  3.5);
+
+    if (this._state !== STATE.TITLE_FADE) {
+      const rf = Math.min(1, dt * 7);
+      const ru = this._ring.uniforms;
+      ru.uOpacity.value += (this._ringOpTgt - ru.uOpacity.value) * rf;
+      ru.uPulse.value   += (this._ringPuTgt - ru.uPulse.value)   * rf;
+      const ns = this._ring.mesh.scale.x + (this._ringScTgt - this._ring.mesh.scale.x) * rf;
+      this._ring.mesh.scale.set(ns, 1, ns);
+      this._tmp.copy(this._col).lerp(this._white, ru.uPulse.value * 0.55);
+      ru.uColor.value.copy(this._tmp);
+    }
+
+    // ── State machine ─────────────────────────────────────────────────────────
+
+    if (this._state === STATE.GATHERING) {
+      this._alphaMul = Math.min(1, this._alphaMul + dt * 0.55);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      let allClose = true;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const tx = cx + Math.cos(this._orbitAng[i]) * this._orbitR[i];
+        const tz = cz + Math.sin(this._orbitAng[i]) * this._orbitR[i];
+        const dx = tx - pos[i3], dz = tz - pos[i3+2];
+        const d  = Math.sqrt(dx*dx + dz*dz);
+        if (d > 0.2) {
+          allClose = false;
+          const sp = Math.min(GATHER_SPEED * 2.4, d * 4.2 + 1.5);
+          const m  = Math.min(sp * dt, d - 0.18);
+          pos[i3]     += (dx/d) * m;
+          pos[i3 + 2] += (dz/d) * m;
+        } else {
+          pos[i3] = tx; pos[i3+2] = tz;
+        }
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3+2], elapsed, energy) + 0.12;
+      }
+      if (allClose || this._stateTime > 9.0) {
+        this._state = STATE.IDLE; this._stateTime = 0;
+      }
+      this._pulseEnvTgt = 0; this._compactTgt = 0;
+      this._ringOpTgt = Math.min(0.7, this._stateTime * 0.12);
+      this._ringScTgt = 1.0; this._ringPuTgt = 0;
+
+    } else if (this._state === STATE.IDLE) {
+      const lf = Math.min(1, dt * 8.0);
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const r  = this._orbitR[i] * (0.88 + Math.sin(elapsed * 1.7 + this._orbitPhase[i]) * 0.12);
+        const tx = cx + Math.cos(this._orbitAng[i]) * r;
+        const tz = cz + Math.sin(this._orbitAng[i]) * r;
+        pos[i3]     += (tx - pos[i3])   * lf;
+        pos[i3 + 2] += (tz - pos[i3+2]) * lf;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3+2], elapsed, energy) + 0.12;
+      }
+      this._pulseEnvTgt = 0; this._compactTgt = 0;
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      const breathe = 0.55 + 0.18 * Math.sin(elapsed * 1.7) + 0.07 * Math.sin(elapsed * 4.3);
+      this._ringOpTgt = breathe;
+      this._ringScTgt = 1.00 + 0.06 * Math.sin(elapsed * 1.7);
+      this._ringPuTgt = 0;
+
+    } else if (this._state === STATE.ACTIVATING) {
+      this._pulseEnvTgt = 1.0; this._compactTgt = 1.0;
+      const orbitMul = 1.0 - 0.58 * this._compactBlend;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        if (this._hasTarget[i]) {
+          const tx = this._targets[i3], tz = this._targets[i3+2];
+          const dx = tx - pos[i3], dz = tz - pos[i3+2];
+          const d  = Math.sqrt(dx*dx + dz*dz);
+          if (d > 0.04) { const m = Math.min(FORM_SPEED * dt, d); pos[i3] += (dx/d)*m; pos[i3+2] += (dz/d)*m; }
+          else           { pos[i3] = tx; pos[i3+2] = tz; }
+        } else {
+          const r = this._orbitR[i] * orbitMul;
+          const tx = cx + Math.cos(this._orbitAng[i]) * r;
+          const tz = cz + Math.sin(this._orbitAng[i]) * r;
+          pos[i3]   += (tx - pos[i3])   * Math.min(1, dt * 8);
+          pos[i3+2] += (tz - pos[i3+2]) * Math.min(1, dt * 8);
+        }
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3+2], elapsed, energy) + 0.12;
+      }
+      if (this._stateTime > 1.4) { this._state = STATE.ACTIVE; this._stateTime = 0; }
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      this._ringOpTgt = 0.75; this._ringScTgt = 1.06; this._ringPuTgt = 0.3;
+
+    } else if (this._state === STATE.ACTIVE) {
+      this._pulseEnvTgt = 1.0; this._compactTgt = 1.0;
+      const orbitMul = 1.0 - 0.58 * this._compactBlend;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        if (this._hasTarget[i]) {
+          pos[i3]     = this._targets[i3];
+          pos[i3 + 1] = waveHeight(this._targets[i3], this._targets[i3+2], elapsed, energy) + 0.12;
+          pos[i3 + 2] = this._targets[i3+2];
+        } else {
+          const r = this._orbitR[i] * orbitMul;
+          pos[i3]     = cx + Math.cos(this._orbitAng[i]) * r;
+          pos[i3 + 1] = waveHeight(pos[i3], pos[i3+2], elapsed, energy) + 0.12;
+          pos[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * r;
+        }
+      }
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      this._ringOpTgt = 0.80; this._ringScTgt = 1.10; this._ringPuTgt = 0.4;
+      // Auto-return after dwelling long enough
+      if (this._stateTime > DWELL_RETURN) this._triggerReturn();
+
+    } else if (this._state === STATE.RETURNING) {
+      this._pulseEnvTgt = 0; this._compactTgt = 0;
+      this._hasTarget.fill(0);
+      let allClose = true;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const tx = cx + Math.cos(this._orbitAng[i]) * this._orbitR[i];
+        const tz = cz + Math.sin(this._orbitAng[i]) * this._orbitR[i];
+        const dx = tx - pos[i3], dz = tz - pos[i3+2];
+        const d  = Math.sqrt(dx*dx + dz*dz);
+        if (d > 0.15) {
+          allClose = false;
+          const m = Math.min(FORM_SPEED * dt, d);
+          pos[i3]   += (dx/d)*m; pos[i3+2] += (dz/d)*m;
+        } else { pos[i3] = tx; pos[i3+2] = tz; }
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3+2], elapsed, energy) + 0.12;
+      }
+      if (allClose) { this._state = STATE.IDLE; this._stateTime = 0; }
+      this._uniforms.uPulse.value    = 0;
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      this._ringOpTgt = 0.58 + 0.22 * Math.sin(elapsed * 1.7);
+      this._ringScTgt = 1.0; this._ringPuTgt = 0;
+
+    } else if (this._state === STATE.TITLE_FADE) {
+      const decayRate = this._alphaMul > 1.0 ? 7.0 : 0.55;
+      this._alphaMul = Math.max(0, this._alphaMul - dt * decayRate);
+      this._uniforms.uAlphaMul.value = this._alphaMul;
+      const flashPulse = Math.max(0, this._uniforms.uPulse.value - dt * 5.0);
+      this._uniforms.uPulse.value = flashPulse;
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        this._velArr[i3]   *= 0.985; this._velArr[i3+2] *= 0.985;
+        pos[i3]     += this._velArr[i3]   * dt;
+        pos[i3 + 2] += this._velArr[i3+2] * dt;
+        pos[i3 + 1]  = waveHeight(pos[i3], pos[i3+2], elapsed, energy) + 0.12;
+      }
+      this._ringFade = Math.max(0, this._ringFade - dt * 0.48);
+      this._tmp.copy(this._col).lerp(this._white, flashPulse * 0.8);
+      this._ring.uniforms.uColor.value.copy(this._tmp);
+      this._ring.uniforms.uOpacity.value = this._ringFade * (1.0 + flashPulse * 0.6);
+      this._ring.uniforms.uPulse.value   = flashPulse;
+      const rs = 1.0 + (1.0 - this._ringFade) * 0.35;
+      this._ring.mesh.scale.set(rs, 1, rs);
+    }
+
+    this._pts.geometry.attributes.position.needsUpdate = true;
+
+    // ── Boat proximity detection ──────────────────────────────────────────────
+    if (this._state !== STATE.TITLE_FADE && this._state !== STATE.GATHERING) {
+      const boatPos = this.boat.getPosition();
+      const dx = boatPos.x - cx, dz = boatPos.z - cz;
+      const dist = Math.sqrt(dx*dx + dz*dz);
+
+      if (this._state === STATE.IDLE || this._state === STATE.RETURNING) {
+        if (dist < CIRCLE_R) {
+          this._state = STATE.ACTIVATING; this._stateTime = 0;
+          this._assignTextTargets();
+        }
+      } else if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+        if (dist > CIRCLE_R * 1.4) {
+          this._state = STATE.RETURNING; this._stateTime = 0;
+        }
+      }
+
+      // ── Guide dots ──────────────────────────────────────────────────────────
+      this._updateGuide(dt, elapsed, boatPos, dist, energy);
+
+      // ── Enter hint ─────────────────────────────────────────────────────────
+      if (this._state === STATE.ACTIVE) {
+        this._hintWorldPos.set(cx, 0, cz + 3.5);
+        this._hintWorldPos.project(this.engine.camera);
+        const sx = (this._hintWorldPos.x + 1) / 2 * window.innerWidth;
+        const sy = (-this._hintWorldPos.y + 1) / 2 * window.innerHeight;
+        this._hintEl.style.left    = sx + "px";
+        this._hintEl.style.top     = sy + "px";
+        this._hintEl.style.display = "block";
+      } else {
+        this._hintEl.style.display = "none";
+      }
+    }
+  }
+
+  _updateGuide(dt, elapsed, boatPos, distToCircle, energy) {
+    const cx = this.center.x, cz = this.center.z;
+    const showGuide = (this._state === STATE.IDLE || this._state === STATE.GATHERING)
+                   && distToCircle > CIRCLE_R + 1.5 && distToCircle < 45;
+
+    this._guideAlpha = showGuide
+      ? Math.min(0.40, this._guideAlpha + dt * 0.7)
+      : Math.max(0,    this._guideAlpha - dt * 2.5);
+
+    this._guideUniforms.uAlpha.value = this._guideAlpha;
+
+    if (this._guideAlpha > 0.01) {
+      const gp  = this._guidePosArr;
+      const dx  = boatPos.x - cx, dz = boatPos.z - cz;
+      const len = Math.sqrt(dx*dx + dz*dz) || 1;
+      // Dots go from just outside ring to 65% toward boat
+      const reach = Math.min(distToCircle * 0.65, 28);
+      for (let g = 0; g < GUIDE_COUNT; g++) {
+        const t  = (g + 1) / (GUIDE_COUNT + 1);
+        const d  = CIRCLE_R + 0.8 + t * (reach - CIRCLE_R - 0.8);
+        const gx = cx + (dx / len) * d;
+        const gz = cz + (dz / len) * d;
+        gp[g*3]     = gx;
+        gp[g*3 + 1] = waveHeight(gx, gz, elapsed, energy) + 0.18;
+        gp[g*3 + 2] = gz;
+      }
+      this._guidePosAttr.needsUpdate = true;
+    }
+  }
+
+  // ── Teardown ──────────────────────────────────────────────────────────────
+
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    window.removeEventListener("keydown", this._onKeyDown);
+    this._hintEl?.remove();
+    this._hintEl = null;
+    this.engine.removeUpdatable(this);
+    this.engine.scene.remove(this._pts);
+    this._pts.geometry.dispose();   this._pts.material.dispose();
+    this.engine.scene.remove(this._ring.mesh);
+    this._ring.geo.dispose();       this._ring.mat.dispose();
+    this.engine.scene.remove(this._guideMesh);
+    this._guideMesh.geometry.dispose(); this._guideMesh.material.dispose();
+  }
+}

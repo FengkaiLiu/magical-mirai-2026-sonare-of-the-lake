@@ -41,7 +41,7 @@ const _waveGrid = new Float32Array(GRID_N * GRID_N); // never re-allocated
 
 // ─── Glow particle shader ────────────────────────────────
 
-const glowVert = /* glsl */ `
+export const glowVert = /* glsl */ `
   attribute float aSize;
   attribute float aAlpha;
   uniform float uTime;
@@ -59,7 +59,7 @@ const glowVert = /* glsl */ `
   }
 `;
 
-const glowFrag = /* glsl */ `
+export const glowFrag = /* glsl */ `
   uniform vec3  uColor;
   uniform vec3  uTargetColor;
   uniform float uColorBlend;
@@ -100,7 +100,7 @@ document.fonts.load('bold 60px "KiwiMaru"');
 const _DEFAULT_FONT_FAMILY = '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif';
 const _DEFAULT_FONT_WEIGHT = "bold";
 
-function sampleTextPoints(
+export function sampleTextPoints(
   text,
   letterSpacing = "",
   maxPoints = MAX_SAMPLE_POINTS,
