@@ -52,13 +52,11 @@ export class CameraController {
     this._frozenLook        = new THREE.Vector3();
     this._revealLockEntered = false;
 
-    // Single-segment dive — quadratic bezier carves a slide-shape from
-    // the overhead pose down to the boat-follow pose. The control point
-    // sits at the "knee" of the slide (already low, not yet pushed forward),
-    // so the path drops near-vertically at first then curves out horizontal.
-    // Combined with easeInOutCubic on time, this gives accel-down → decel-out,
-    // and the pitch tilt-up at the end emerges geometrically (no second curve
-    // needed) as the camera slips under the lookAt point.
+    // Single-segment dive — quadratic bezier carves a slide-shape from the
+    // overhead pose down to the boat-follow pose. Time is driven by smoothstep
+    // (zero derivative at both ends), so world-space speed is 0 at launch and 0
+    // at landing. The control point sits at the "knee" (already low, not yet
+    // pushed forward) so the path drops near-vertically first then curves forward.
     this._divePosP0 = new THREE.Vector3(0, 90, 0);
     this._divePosP1 = new THREE.Vector3(0,  8, 0);
     this._divePosP2 = new THREE.Vector3(0, this.height, this.distance);
@@ -118,14 +116,14 @@ export class CameraController {
       return;
     }
 
-    // ── State 2: Dive — ease-in time into bezier slide ─────────────────
-    // rawT²  gives a smooth acceleration from rest at the start; the bezier's
-    // geometry (curve flattens near P2) still provides natural deceleration
-    // into the landing, so the overall feel is: slow start → build speed → settle.
+    // ── State 2: Dive — smoothstep time into bezier slide ───────────────
+    // smoothstep: t = rawT²(3-2·rawT) has zero derivative at both ends,
+    // so world-space speed is exactly 0 at start (ease-in) AND at landing (ease-out).
+    // The bezier geometry shapes the mid-path arc; easing shapes the velocity profile.
     if (this._diveStarted) {
       this._diveTimer += dt;
       const rawT = Math.min(1, this._diveTimer / this._diveDuration);
-      const t = rawT * rawT; // ease-in quad — starts slow, then accelerates
+      const t = rawT * rawT * (3 - 2 * rawT); // smoothstep — 0 speed at both ends
 
       this._sampleDive(t, this._diveGoalPos, this._diveGoalLook);
       this.currentPos.copy(this._diveGoalPos);
