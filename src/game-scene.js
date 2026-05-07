@@ -23,6 +23,7 @@ import { LyricManager } from "./lyric-manager.js";
 import { FishLyricSystem } from "./fish-lyric-system.js";
 import { SongCircleSystem } from "./song-circles.js";
 import { WaterObjects } from "./water-objects.js";
+import { WASDHint } from "./wasd-hint.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,9 @@ export class GameScene {
       if (this._state !== "select" || this._introActive || this.cam.revealLock) return;
       this._beginTransition(songIndex);
     });
+
+    // WASD particle hint — shown once boat arrives at center, disposed on song select.
+    this.wasdHint = new WASDHint(engine, this.boat);
 
     document.getElementById("overlay")?.classList.add("hidden");
 
@@ -241,6 +245,7 @@ export class GameScene {
       this._introActive = false;
       const hint = document.getElementById("select-hint");
       if (hint) hint.style.display = "block";
+      this.wasdHint?.show();
     }, 1800);
   }
 
@@ -270,6 +275,7 @@ export class GameScene {
     this.controls.locked = true;
 
     document.getElementById("select-hint")?.style.setProperty("display", "none");
+    this.wasdHint?.hide();
 
     const song = SONGS[songIndex];
 
@@ -326,6 +332,8 @@ export class GameScene {
     gsap.killTweensOf(this.engine.camera.position);
     this.songCircles?.dispose();
     this.songCircles = null;
+    this.wasdHint?.dispose();
+    this.wasdHint = null;
     for (const f of this._introFormations) f.dispose();
     this._introFormations = [];
   }
@@ -337,7 +345,11 @@ export class GameScene {
     const song = SONGS[songIndex];
     const pre  = this._ensurePreloadedPlayer(songIndex, song);
 
-    document.getElementById("overlay")?.classList.remove("hidden");
+    // Only show loading overlay when the preloaded player isn't timer-ready yet.
+    // If it's already ready, playback starts in <300 ms — no overlay needed.
+    if (!pre.timerReady) {
+      document.getElementById("overlay")?.classList.remove("hidden");
+    }
 
     // Update shared systems in place — no reconstruction.
     this.water.setColors(song.theme.water, song.theme.deep);
