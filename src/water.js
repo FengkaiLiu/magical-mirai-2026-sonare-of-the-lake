@@ -6,22 +6,22 @@
 import * as THREE from "three";
 
 const vertShader = /* glsl */ `
-  uniform float uTime;
+  uniform float uPhaseT;  // CPU-accumulated: integral of spdMod dt — phase-continuous across energy changes
   uniform float uEnergy;
   varying vec3 vWorldPos;
 
   float wave(vec2 pos, vec2 dir, float len, float amp, float spd) {
-    return amp * sin(3.1416 * dot(pos, dir) / len + spd * uTime);
+    return amp * sin(3.1416 * dot(pos, dir) / len + spd * uPhaseT);
   }
 
   float waveHeight(vec2 p) {
     float ampMod = 1.0 + uEnergy * 2.0;
-    float spdMod = 1.0 + uEnergy * 1.5;
-    float w1 = wave(p, vec2(0.8, 0.6), 5.0, 0.08 * ampMod, 0.7 * spdMod);
-    float w2 = wave(p, vec2(-0.5, 0.8), 8.0, 0.05 * ampMod, 0.5 * spdMod);
-    float w3 = wave(p, vec2(0.3, -0.7), 3.0, 0.03 * ampMod, 1.0 * spdMod);
-    float w4 = wave(p, vec2(0.6, -0.4), 1.5, 0.012 * ampMod, 1.8 * spdMod);
-    float w5 = wave(p, vec2(-0.3, 0.9), 2.0, 0.015 * ampMod, 1.4 * spdMod);
+    // Speed modulation is baked into uPhaseT on the CPU — only amplitude varies per-frame here.
+    float w1 = wave(p, vec2(0.8, 0.6), 5.0, 0.08 * ampMod, 0.7);
+    float w2 = wave(p, vec2(-0.5, 0.8), 8.0, 0.05 * ampMod, 0.5);
+    float w3 = wave(p, vec2(0.3, -0.7), 3.0, 0.03 * ampMod, 1.0);
+    float w4 = wave(p, vec2(0.6, -0.4), 1.5, 0.012 * ampMod, 1.8);
+    float w5 = wave(p, vec2(-0.3, 0.9), 2.0, 0.015 * ampMod, 1.4);
     return w1 + w2 + w3 + w4 + w5;
   }
 
@@ -35,7 +35,7 @@ const vertShader = /* glsl */ `
 `;
 
 const fragShader = /* glsl */ `
-  uniform float uTime;
+  uniform float uCausticT; // CPU-accumulated caustic phase — continuous across energy changes
   uniform vec3  uShallow;
   uniform vec3  uDeep;
   uniform vec3  uSunDir;
@@ -74,7 +74,7 @@ const fragShader = /* glsl */ `
     col += vec3(1.0, 0.95, 0.85) * spec * 0.6;
 
     // Caustics
-    float cSpd = uTime * (0.3 + uEnergy * 0.5);
+    float cSpd = uCausticT;
     float c1 = sin(vWorldPos.x * 0.8 + cSpd) * sin(vWorldPos.z * 0.7 + cSpd * 0.8);
     float c2 = sin(vWorldPos.x * 1.1 - cSpd * 0.7) * sin(vWorldPos.z * 0.9 + cSpd * 0.5);
     float caustic = (c1 + c2) * 0.015 + 0.02;
@@ -110,6 +110,8 @@ export class Water {
 
     this.uniforms = {
       uTime:        { value: 0 },
+      uPhaseT:      { value: 0 },   // accumulated wave phase — avoids jump when energy changes
+      uCausticT:    { value: 0 },   // accumulated caustic phase — same reason
       uShallow:     { value: new THREE.Color(0x5bc8d8) },
       uDeep:        { value: new THREE.Color(0x2478a0) },
       uSunDir:      { value: new THREE.Vector3(0.3, 0.8, -0.5).normalize() },
@@ -118,8 +120,16 @@ export class Water {
       uCloudScale:  { value: 0.015 },
       uSkyTop:      { value: new THREE.Color(0x1a7ad4) },
       uSkyHorizon:  { value: new THREE.Color(0xe8f4ff) },
-      uEnergy:        { value: 0 },
+      uEnergy:      { value: 0 },
     };
+
+    // Accumulated phase times — integrated on the CPU each frame.
+    // Using integral(spdMod * dt) instead of spdMod * t means phase is
+    // always continuous even when energy (and spdMod) changes suddenly.
+    this._phaseT   = 0;
+    this._causticT = 0;
+    this._cloudX   = 0;
+    this._cloudY   = 0;
 
     const geo = new THREE.PlaneGeometry(120, 120, 50, 50);
     geo.rotateX(-Math.PI / 2);
@@ -153,9 +163,17 @@ export class Water {
     const energy = this.engine.env?.smoothedEnergy ?? 0;
     this.uniforms.uEnergy.value = energy;
 
-    // Advance cloud offset — drives shadow drift
-    this.uniforms.uCloudOffset.value.x = elapsed * (0.008 + energy * 0.01);
-    this.uniforms.uCloudOffset.value.y = elapsed * (0.005 + energy * 0.01);
+    // Accumulate phase times: integrate spdMod/causticRate over dt so that
+    // any mid-flight energy change doesn't create a phase discontinuity.
+    this._phaseT   += (1.0 + energy * 1.5) * dt;
+    this._causticT += (0.3 + energy * 0.5) * dt;
+    this._cloudX   += (0.008 + energy * 0.01) * dt;
+    this._cloudY   += (0.005 + energy * 0.01) * dt;
+
+    this.uniforms.uPhaseT.value          = this._phaseT;
+    this.uniforms.uCausticT.value        = this._causticT;
+    this.uniforms.uCloudOffset.value.x   = this._cloudX;
+    this.uniforms.uCloudOffset.value.y   = this._cloudY;
   }
 
   dispose() {

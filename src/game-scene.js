@@ -408,13 +408,26 @@ export class GameScene {
   }
 
   _setupHUD(song) {
-    document.getElementById("hud")?.classList.add("visible");
+    const hud = document.getElementById("hud");
+    if (hud) {
+      hud.style.opacity = "0";
+      hud.style.transition = "";
+      hud.classList.add("visible"); // switches display: none → flex
+      // Double rAF: first frame commits display:flex, second starts opacity tween.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        hud.style.transition = "opacity 1.0s ease";
+        hud.style.opacity    = "1";
+      }));
+    }
     const songInfo = document.getElementById("song-info");
     if (songInfo) songInfo.textContent = `${song.title} / ${song.artist}`;
     const controlsHint = document.getElementById("controls-hint");
     if (controlsHint) {
       controlsHint.style.opacity = "1";
-      setTimeout(() => { controlsHint.style.opacity = "0"; }, 5000);
+      setTimeout(() => {
+        controlsHint.style.transition = "opacity 1.5s ease";
+        controlsHint.style.opacity    = "0";
+      }, 5000);
     }
   }
 
