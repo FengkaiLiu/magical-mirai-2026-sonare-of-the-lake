@@ -307,10 +307,12 @@ export class WaterObjects {
       if (n._pendingHit) { n._pendingHit = false; this._hitNote(n); }
     }
 
-    this._plankTimer -= dt;
-    if (this._plankTimer <= 0) { this._plankTimer = PLANK_INTERVAL; this._spawnPlankAheadOfBoat(); }
-    this._noteTimer -= dt;
-    if (this._noteTimer <= 0) { this._noteTimer = NOTE_INTERVAL; this._spawnNoteRandom(); }
+    if (!this._fadingOut) {
+      this._plankTimer -= dt;
+      if (this._plankTimer <= 0) { this._plankTimer = PLANK_INTERVAL; this._spawnPlankAheadOfBoat(); }
+      this._noteTimer -= dt;
+      if (this._noteTimer <= 0) { this._noteTimer = NOTE_INTERVAL; this._spawnNoteRandom(); }
+    }
 
     for (let i = this._planks.length - 1; i >= 0; i--) {
       const p = this._planks[i];
@@ -403,6 +405,15 @@ export class WaterObjects {
     n.mesh.traverse(child => {
       if (child.isMesh) child.material?.dispose();
     });
+  }
+
+  // Gracefully wind down: stop spawning, fade notes, remove planks immediately.
+  // Fragments and sparks self-clean via their existing life decay.
+  beginFadeOut() {
+    this._fadingOut = true;
+    for (const n of this._notes) n.fadeOut = true;
+    for (const p of [...this._planks]) this._destroyPlank(p);
+    this._planks = [];
   }
 
   dispose() {

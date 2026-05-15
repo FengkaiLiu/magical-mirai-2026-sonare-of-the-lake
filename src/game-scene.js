@@ -257,8 +257,7 @@ export class GameScene {
       if (this._disposed) return;
       this.controls.locked = false;
       this._introActive = false;
-      const hint = document.getElementById("select-hint");
-      if (hint) hint.style.display = "block";
+      document.getElementById("select-hint")?.classList.add("visible");
       this.wasdHint?.show();
     }, 1800);
   }
@@ -288,7 +287,7 @@ export class GameScene {
     this._state = "transitioning";
     this.controls.locked = true;
 
-    document.getElementById("select-hint")?.style.setProperty("display", "none");
+    document.getElementById("select-hint")?.classList.remove("visible");
     this.wasdHint?.hide();
 
     const song = SONGS[songIndex];
@@ -449,9 +448,18 @@ export class GameScene {
       }, 5000);
     }
 
-    document.getElementById("song-progress-wrap")?.classList.add("visible");
+    const wrap = document.getElementById("song-progress-wrap");
     const fill = document.getElementById("song-progress-fill");
-    if (fill) fill.style.width = "0%";
+    if (fill) {
+      fill.style.width = "0%";
+      const c = new THREE.Color(song.theme?.particle ?? 0x88eeff);
+      const lo = c.clone().lerp(new THREE.Color(0xffffff), 0.35);
+      const rgb  = [c.r,  c.g,  c.b ].map(v => Math.round(v * 255));
+      const rgbl = [lo.r, lo.g, lo.b].map(v => Math.round(v * 255));
+      fill.style.background  = `linear-gradient(90deg,rgb(${rgb}),rgb(${rgbl}))`;
+      fill.style.boxShadow   = `0 0 8px rgba(${rgb},0.7)`;
+    }
+    if (wrap) wrap.classList.add("visible");
   }
 
   _setupAudioPipeline(pre) {
@@ -624,7 +632,16 @@ export class GameScene {
       if (this._disposed || this._state !== "ending") return;
       this._lyricGate = new ReturnCircle(
         this.engine, this.boat, color, startPos,
-        () => this._resetToSelect(),
+        () => {
+          // Fade play-world objects out while the scene stays visible.
+          this.waterObjects?.beginFadeOut();
+          this._tweenToTheme(
+            { water: 0x5bc8d8, deep: 0x2478a0, sky: 0x1a7ad4, skyHorizon: 0xe8f4ff },
+            1.8,
+          );
+          // Notes take ~333ms to fade at rate 3/s; wait 450ms to be safe.
+          setTimeout(() => { if (!this._disposed) this._resetToSelect(); }, 450);
+        },
       );
     }, 1500);
   }
@@ -659,9 +676,17 @@ export class GameScene {
       hud.style.opacity = "0";
       setTimeout(() => hud.classList.remove("visible"), 900);
     }
-    document.getElementById("song-progress-wrap")?.classList.remove("visible");
+    const progressWrap = document.getElementById("song-progress-wrap");
     const progressFill = document.getElementById("song-progress-fill");
-    if (progressFill) progressFill.style.width = "0%";
+    progressWrap?.classList.remove("visible");
+    // Reset fill after opacity transition completes so the bar isn't seen jumping.
+    setTimeout(() => {
+      if (progressFill) {
+        progressFill.style.width = "0%";
+        progressFill.style.background = "linear-gradient(90deg,#30c8d8,#80eeff)";
+        progressFill.style.boxShadow  = "0 0 8px rgba(64,220,240,0.7)";
+      }
+    }, 550);
 
     // Reset sky mode
     if (this.skyMode) {
@@ -683,8 +708,7 @@ export class GameScene {
     this.wasdHint = new WASDHint(this.engine, this.boat);
     this.wasdHint.show();
 
-    const hint = document.getElementById("select-hint");
-    if (hint) hint.style.display = "block";
+    document.getElementById("select-hint")?.classList.add("visible");
 
     this.controls.locked = false;
     this._state = "select";
