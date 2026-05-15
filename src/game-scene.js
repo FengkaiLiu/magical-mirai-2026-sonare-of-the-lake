@@ -61,6 +61,15 @@ export class GameScene {
 
     document.getElementById("overlay")?.classList.add("hidden");
 
+    // One-time seek handler on the progress bar (safe to add once — checks this.player at call time)
+    document.getElementById("song-progress-wrap")?.addEventListener("click", (e) => {
+      if (!this.player?.video) return;
+      const dur = this.player.video.duration;
+      if (!dur) return;
+      const frac = e.clientX / window.innerWidth;
+      try { this.player.requestMediaSeek(Math.round(frac * dur)); } catch {}
+    });
+
     // ── Play-state resources (null until _activatePlay) ────────────────────
     this.lyrics            = null;
     this.fishLyrics        = null;
@@ -439,6 +448,10 @@ export class GameScene {
         controlsHint.style.opacity    = "0";
       }, 5000);
     }
+
+    document.getElementById("song-progress-wrap")?.classList.add("visible");
+    const fill = document.getElementById("song-progress-fill");
+    if (fill) fill.style.width = "0%";
   }
 
   _setupAudioPipeline(pre) {
@@ -508,9 +521,12 @@ export class GameScene {
   _handleTimeUpdate(pos, song) {
     if (document.hidden || !this._playbackStarted) return;
 
+    const dur = this.player.video?.duration || 0;
     const timeTxt = document.getElementById("time");
-    if (timeTxt) timeTxt.textContent =
-      `${_fmt(pos)} / ${_fmt(this.player.video?.duration || 0)}`;
+    if (timeTxt) timeTxt.textContent = `${_fmt(pos)} / ${_fmt(dur)}`;
+
+    const progressFill = document.getElementById("song-progress-fill");
+    if (progressFill && dur) progressFill.style.width = `${Math.min(100, (pos / dur) * 100)}%`;
 
     const inChorus = (song.chorus || []).some(([s, e]) => pos >= s && pos < e);
     if (inChorus !== this._autoChorus) {
@@ -530,7 +546,6 @@ export class GameScene {
 
     // Detect song end: trigger ending sequence ~800 ms before song finishes
     if (!this._endingTriggered) {
-      const dur = this.player.video?.duration;
       if (dur && pos >= dur - 800) {
         this._endingTriggered = true;
         setTimeout(() => this._beginEnding(), 1200);
@@ -637,13 +652,16 @@ export class GameScene {
     }
     if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
 
-    // Hide HUD
+    // Hide HUD and progress bar
     const hud = document.getElementById("hud");
     if (hud) {
       hud.style.transition = "opacity 0.8s ease";
       hud.style.opacity = "0";
       setTimeout(() => hud.classList.remove("visible"), 900);
     }
+    document.getElementById("song-progress-wrap")?.classList.remove("visible");
+    const progressFill = document.getElementById("song-progress-fill");
+    if (progressFill) progressFill.style.width = "0%";
 
     // Reset sky mode
     if (this.skyMode) {
@@ -660,6 +678,7 @@ export class GameScene {
       if (this._state !== "select" || this.cam.revealLock) return;
       this._beginTransition(songIndex);
     });
+    this.songCircles.startReturn();
 
     this.wasdHint = new WASDHint(this.engine, this.boat);
     this.wasdHint.show();

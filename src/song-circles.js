@@ -15,6 +15,7 @@ document.fonts.load('400 60px "KiwiMaru"');
 const STATE = Object.freeze({
   WAITING:          "waiting",          // pre-gather; updates skipped
   GATHERING:        "gathering",        // particles converge into orbit ring
+  FADING_IN:        "fadingIn",         // return-from-play: orbit in place, alpha 0→1
   IDLE:             "idle",              // breathing orbit, waiting for boat
   ACTIVATING:       "activating",       // boat entered radius; collapsing into title
   ACTIVE:           "active",            // title fully formed, awaiting Enter
@@ -36,7 +37,7 @@ const NON_DEACTIVATABLE = new Set([
 
 // States in which the circle is eligible to be "near boat" for activation detection.
 const ACTIVATION_ELIGIBLE = new Set([
-  STATE.IDLE, STATE.ACTIVATING, STATE.ACTIVE, STATE.RETURNING, STATE.GATHERING,
+  STATE.IDLE, STATE.ACTIVATING, STATE.ACTIVE, STATE.RETURNING, STATE.GATHERING, STATE.FADING_IN,
 ]);
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -278,6 +279,26 @@ class SongCircle {
     this._stateTime = 0;
   }
 
+  // Return-from-play: place particles at orbit positions immediately and fade alpha 0→1.
+  startReturn(delay = 0) {
+    if (this._state !== STATE.WAITING) return;
+    const cx = this.center.x, cz = this.center.z;
+    for (let i = 0; i < this._n; i++) {
+      const i3 = i * 3;
+      this._posArr[i3]     = cx + Math.cos(this._orbitAng[i]) * this._orbitR[i];
+      this._posArr[i3 + 1] = 0.15;
+      this._posArr[i3 + 2] = cz + Math.sin(this._orbitAng[i]) * this._orbitR[i];
+    }
+    this._alphaMul = 0;
+    this._uniforms.uAlphaMul.value = 0;
+    this._uniforms.uColor.value.copy(this._songCol);
+    this._pts.geometry.attributes.position.needsUpdate = true;
+    this._ringOpTgt = 0;
+    this._ring1.uniforms.uOpacity.value = 0;
+    this._state     = STATE.FADING_IN;
+    this._stateTime = -delay; // negative stateTime acts as a per-circle start delay
+  }
+
   activate() {
     const s = this._state;
     if (s === STATE.ACTIVE || s === STATE.ACTIVATING || s === STATE.WAITING) return;
@@ -495,6 +516,31 @@ class SongCircle {
       this._ringScTgt   = 1.0;
       this._ringPuTgt   = 0;
 
+    } else if (this._state === STATE.FADING_IN) {
+      // Delay phase: stateTime is negative until delay elapses, particles stay invisible.
+      if (this._stateTime < 0) {
+        this._uniforms.uAlphaMul.value = 0;
+      } else {
+        this._alphaMul = Math.min(1, this._alphaMul + dt * 0.45);
+        this._uniforms.uAlphaMul.value = this._alphaMul;
+        if (this._alphaMul >= 1.0) { this._state = STATE.IDLE; this._stateTime = 0; }
+      }
+      const lf = Math.min(1, dt * 6.0);
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3;
+        const r  = this._orbitR[i];
+        const tx = cx + Math.cos(this._orbitAng[i]) * r;
+        const tz = cz + Math.sin(this._orbitAng[i]) * r;
+        pos[i3]     += (tx - pos[i3])     * lf;
+        pos[i3 + 2] += (tz - pos[i3 + 2]) * lf;
+        pos[i3 + 1] = waveHeight(pos[i3], pos[i3 + 2], elapsed, energy) + 0.12;
+      }
+      this._pulseEnvTgt = 0;
+      this._compactTgt  = 0;
+      this._ringOpTgt   = this._alphaMul * 0.65;
+      this._ringScTgt   = 1.0;
+      this._ringPuTgt   = 0;
+
     } else if (this._state === STATE.IDLE) {
       const lf = Math.min(1, dt * 8.0);
       for (let i = 0; i < n; i++) {
@@ -709,6 +755,13 @@ export class SongCircleSystem {
 
   startGather() {
     for (const c of this._circles) c.startGather();
+  }
+
+  // Return-from-play variant: circles fade in staggered at their orbit positions.
+  startReturn() {
+    for (let i = 0; i < this._circles.length; i++) {
+      this._circles[i].startReturn(i * 0.13);
+    }
   }
 
   triggerSelection() {

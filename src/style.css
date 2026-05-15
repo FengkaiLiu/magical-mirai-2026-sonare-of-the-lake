@@ -317,3 +317,53 @@ body {
   0%, 100% { opacity: 0.8; }
   50%       { opacity: 1.0; }
 }
+
+/* Return circle "Enter to return" hint — mirrors #song-enter-hint */
+#return-hint {
+  position: fixed;
+  color: rgba(200, 240, 255, 0.92);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(136, 232, 255, 0.7), 0 1px 3px rgba(0,0,0,0.6);
+  z-index: 10;
+  animation: enterHintPulse 2s ease-in-out infinite;
+}
+#return-hint kbd {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid rgba(136, 232, 255, 0.55);
+  border-bottom-width: 3px;
+  border-radius: 5px;
+  background: rgba(0, 20, 40, 0.55);
+  color: #aaeeff;
+  font-size: 0.88rem;
+  font-family: inherit;
+  box-shadow: 0 0 8px rgba(136, 232, 255, 0.3);
+}
+
+/* Song progress bar — top of screen during play */
+#song-progress-wrap {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255,255,255,0.10);
+  z-index: 25;
+  display: none;
+  cursor: pointer;
+  transition: height 0.12s ease;
+}
+#song-progress-wrap:hover { height: 8px; }
+#song-progress-wrap.visible { display: block; }
+#song-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #30c8d8, #80eeff);
+  box-shadow: 0 0 8px rgba(64, 220, 240, 0.7);
+  pointer-events: none;
+  border-radius: 0 2px 2px 0;
+}

@@ -23,7 +23,6 @@ const TEXT_W       = 34.0;
 const TEXT_H       = 7.2;
 const TEXT_FORWARD = -4.0; // Z offset from circle center where text forms
 const GUIDE_COUNT  = 9;    // particles in the dotted guide line
-const DWELL_RETURN = 2.5;  // seconds in ACTIVE before auto-return
 
 // ── States ────────────────────────────────────────────────────────────────────
 
@@ -280,15 +279,7 @@ export class ReturnCircle {
     this._hintEl = document.createElement("div");
     this._hintEl.id = "return-hint";
     this._hintEl.innerHTML = `Press <kbd>&#9166; Enter</kbd> to return`;
-    this._hintEl.style.cssText = [
-      "position:fixed", "display:none", "pointer-events:none",
-      "color:#fff", "font-size:0.9rem",
-      `font-family:"Caveat",cursive`,
-      "text-shadow:0 0 8px rgba(255,255,255,0.8)",
-      "transform:translate(-50%,-50%)",
-      "background:rgba(0,0,0,0.25)", "padding:4px 14px",
-      "border-radius:20px", "white-space:nowrap",
-    ].join(";");
+    this._hintEl.style.display = "none";
     document.body.appendChild(this._hintEl);
     this._hintWorldPos = new THREE.Vector3();
 
@@ -552,8 +543,6 @@ export class ReturnCircle {
       this._uniforms.uPulse.value    = 0;
       this._uniforms.uAlphaMul.value = this._alphaMul;
       this._ringOpTgt = 0.80; this._ringScTgt = 1.10; this._ringPuTgt = 0.4;
-      // Auto-return after dwelling long enough
-      if (this._stateTime > DWELL_RETURN) this._triggerReturn();
 
     } else if (this._state === STATE.RETURNING) {
       this._pulseEnvTgt = 0; this._compactTgt = 0;
