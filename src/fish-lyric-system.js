@@ -10,7 +10,7 @@ import * as THREE from "three";
 import { LyricFormation } from "./fish-school.js";
 
 const MAX_PHRASES    = 1;   // only one phrase visible at a time — prevents overlap
-const PHRASE_LIFE    = 5.0; // seconds before a formation auto-fades
+const PHRASE_LIFE    = 8.0; // seconds of display time after the formation is fully gathered
 const SPAWN_DIST     = 7;   // distance from boat to formation center
 const SPAWN_SIDE_OFF = 1.5; // slight lateral offset so text doesn't bisect the boat
 
@@ -120,8 +120,9 @@ export class FishLyricSystem {
     const boatVel = this.boat.body.velocity; // CANNON.Vec3 — live reference
     for (let i = this._formations.length - 1; i >= 0; i--) {
       const f = this._formations[i];
-      // Auto-expire after PHRASE_LIFE seconds
-      f._age += dt;
+      // Only count display age after targets are assigned (2 deferred frames in LyricFormation).
+      // This prevents the gather animation from consuming the display window.
+      if (!f._pendingPhrase && !f._pendingAssign) f._age += dt;
       if (f._age >= PHRASE_LIFE && f._fadeState !== "out") f.startFade();
       f.update(dt, elapsed, boatPos, boatVel);
       if (f.faded) {
