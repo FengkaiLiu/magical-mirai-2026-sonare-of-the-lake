@@ -14,6 +14,13 @@ const PHRASE_LIFE    = 5.0; // seconds before a formation auto-fades
 const SPAWN_DIST     = 7;   // distance from boat to formation center
 const SPAWN_SIDE_OFF = 1.5; // slight lateral offset so text doesn't bisect the boat
 
+// Boat play area is ±40 (boat.js). Text is always axis-aligned in world space:
+// TEXT_WIDTH=24 → ±12 along global X; FORM_Y_RANGE=3.5 → ±1.75 along global Z.
+// Add a 1-unit margin so the outermost particles stay inside the play area.
+const PLAY_HALF   = 40;
+const TEXT_CLAMP_X = PLAY_HALF - 13; // 27
+const TEXT_CLAMP_Z = PLAY_HALF - 3;  // 37
+
 // Single source of truth for the LyricFormation options used by addPhrase().
 // prewarmPhrase() must pass the SAME values, otherwise sampleTextPoints()
 // computes a different cache key for the prewarm call than for the runtime
@@ -81,10 +88,12 @@ export class FishLyricSystem {
     this._lastSlot = (this._lastSlot === 0) ? 1 : 0;
     const sign = this._lastSlot === 0 ? 1 : -1;
 
+    const cx = boatPos.x + fx * SPAWN_DIST * sign + (-fz) * SPAWN_SIDE_OFF;
+    const cz = boatPos.z + fz * SPAWN_DIST * sign + fx   * SPAWN_SIDE_OFF;
     const center = new THREE.Vector3(
-      boatPos.x + fx * SPAWN_DIST * sign + (-fz) * SPAWN_SIDE_OFF,
+      Math.max(-TEXT_CLAMP_X, Math.min(TEXT_CLAMP_X, cx)),
       0,
-      boatPos.z + fz * SPAWN_DIST * sign + fx   * SPAWN_SIDE_OFF,
+      Math.max(-TEXT_CLAMP_Z, Math.min(TEXT_CLAMP_Z, cz)),
     );
 
     const color = this._activeColor;
