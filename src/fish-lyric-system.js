@@ -17,9 +17,9 @@ const SPAWN_SIDE_OFF = 1.5; // slight lateral offset so text doesn't bisect the 
 // Boat play area is ±40 (boat.js). Text is always axis-aligned in world space:
 // TEXT_WIDTH=24 → ±12 along global X; FORM_Y_RANGE=3.5 → ±1.75 along global Z.
 // Add a 1-unit margin so the outermost particles stay inside the play area.
-const PLAY_HALF   = 40;
-const TEXT_CLAMP_X = PLAY_HALF - 13; // 27
-const TEXT_CLAMP_Z = PLAY_HALF - 3;  // 37
+const PLAY_HALF   = 48;
+const TEXT_CLAMP_X = PLAY_HALF - 13; // 35
+const TEXT_CLAMP_Z = PLAY_HALF - 3;  // 45
 
 // Single source of truth for the LyricFormation options used by addPhrase().
 // prewarmPhrase() must pass the SAME values, otherwise sampleTextPoints()

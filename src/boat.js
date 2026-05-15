@@ -251,6 +251,19 @@ export class Boat {
       this.body.angularVelocity.y -= this.turnTorque * dt;
     }
 
+    // Soft boundary: quadratic repulsion within 6 units of the play-area edge (±40).
+    // Force builds from 0 at the zone entry to 150 m/s² at the edge, strong enough
+    // to push back against full throttle while still feeling like water resistance.
+    {
+      const EDGE = 48, ZONE = 6, STIFF = 150;
+      const px = this.body.position.x;
+      const pz = this.body.position.z;
+      const ox = Math.abs(px) - (EDGE - ZONE);
+      const oz = Math.abs(pz) - (EDGE - ZONE);
+      if (ox > 0) { const t = ox / ZONE; vel.x -= Math.sign(px) * STIFF * t * t * dt; }
+      if (oz > 0) { const t = oz / ZONE; vel.z -= Math.sign(pz) * STIFF * t * t * dt; }
+    }
+
     vel.x *= 0.98;
     vel.z *= 0.98;
 
@@ -275,9 +288,9 @@ export class Boat {
     const p = this.body.position;
     const quat = this.body.quaternion;
 
-    // Clamp to play area (applied to physics body)
-    p.x = Math.max(-40, Math.min(40, p.x));
-    p.z = Math.max(-40, Math.min(40, p.z));
+    // Hard clamp as a safety net — the soft boundary in preStep normally prevents reaching here.
+    p.x = Math.max(-53, Math.min(53, p.x));
+    p.z = Math.max(-53, Math.min(53, p.z));
 
     // Interpolate position between previous and current physics state
     const ix = this._prevPos.x + (p.x - this._prevPos.x) * alpha;
