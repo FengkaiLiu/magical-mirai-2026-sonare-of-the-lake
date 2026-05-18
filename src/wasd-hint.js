@@ -21,7 +21,7 @@ const PARTICLE_COUNT  = 2500;
 const POOL_RADIUS     = 2.5;     // initial scatter radius
 const SURFACE_OFFSET  = 0.15;   // above wave surface
 const FORM_SPEED      = 9.0;
-const AVOID_RADIUS    = 0.5;    // boat kick radius
+const AVOID_RADIUS    = 0.5   // boat kick radius
 const AVOID_FORCE     = 15;
 const SCATTER_DURATION    = 1.5;
 const SCATTER_SIZE_BOOST  = 1.4;
@@ -48,8 +48,8 @@ const _vert = /* glsl */ `
   void main() {
     vAlpha = aAlpha;
     vec4 mvPos  = modelViewMatrix * vec4(position, 1.0);
-    float pulse = 1.0 + 0.10 * sin(uTime * 2.0 + position.x * 3.0 + position.z * 2.0);
-    float boost = mix(1.0, 1.25, uIntensity);
+    float pulse = 1.0 + 0.08 * sin(uTime * 2.0 + position.x * 3.0 + position.z * 2.0);
+    float boost = mix(1.0, 1.20, uIntensity);
     gl_PointSize = aSize * pulse * boost * (280.0 / -mvPos.z);
     gl_Position  = projectionMatrix * mvPos;
   }
@@ -65,12 +65,11 @@ const _frag = /* glsl */ `
   void main() {
     float d    = length(gl_PointCoord - vec2(0.5));
     if (d > 0.5) discard;
-    float core      = exp(-d * d * 32.0);
-    float halo      = exp(-d * d * 12.0) * 0.22;
+    float core      = exp(-d * d * 14.0);
+    float halo      = exp(-d * d *  5.0) * 0.45;
     float glowBoost = mix(uGlowMin, uGlowMax, uIntensity);
     float glow      = (core + halo) * glowBoost;
-    vec3 col        = uColor * glow + vec3(1.0) * core * 0.12;
-    gl_FragColor    = vec4(col, vAlpha * glow * uAlphaMul);
+    gl_FragColor    = vec4(uColor * glow, vAlpha * glow * uAlphaMul);
   }
 `;
 
@@ -91,9 +90,6 @@ function _roundRect(ctx, x, y, w, h, r) {
 }
 
 function _buildCanvas() {
-  // 2× resolution so borders/letters have many more unique pixel positions,
-  // eliminating the holes and jaggies that come from stacking particles on
-  // too few sample points.
   const CW = 640, CH = 200;
   const canvas = document.createElement("canvas");
   canvas.width  = CW;
@@ -103,46 +99,53 @@ function _buildCanvas() {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, CW, CH);
 
-  // All visual elements scaled 2× vs the old canvas.
-  const KW = 72, KH = 66, GAP = 10, R = 10;
-
+  // Arrow grid mirrors the WASD key positions.
+  const KW = 72, KH = 66, GAP = 10;
   const aX    = 80;
   const sX    = aX + KW + GAP;
   const dX    = sX + KW + GAP;
-  const r1Y   = 12;
-  const r2Y   = r1Y + KH + GAP;
-  const textX = dX + KW + 30;
+  const r1Y = 12;
+  const r2Y = r1Y + KH + GAP;
 
-  function drawKey(label, x, y) {
-    // Black fill — brightness 0, below sampling threshold, so no particles inside key body.
-    ctx.fillStyle = "#000";
-    _roundRect(ctx, x, y, KW, KH, R);
+  // Triangle dimensions — equilateral-ish, fits inside the key cell with margin.
+  const TW = 50, TH = 44;
+  const R = 10;
+
+  function tri(x1, y1, x2, y2, x3, y3) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineTo(x3, y3);
+    ctx.closePath();
     ctx.fill();
+  }
 
-    // Bright border only — particles trace the outline.
-    ctx.strokeStyle = "#88ddff";
+  function key(x, y) {
+    ctx.strokeStyle = "#ffffff";
     ctx.lineWidth   = 6;
     _roundRect(ctx, x, y, KW, KH, R);
     ctx.stroke();
-
-    // Large, bold letter — fills most of the key face
-    ctx.fillStyle    = "#ddf4ff";
-    ctx.font         = "bold 42px monospace";
-    ctx.textAlign    = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(label, x + KW / 2, y + KH / 2);
   }
 
-  drawKey("W", sX, r1Y);
-  drawKey("A", aX, r2Y);
-  drawKey("S", sX, r2Y);
-  drawKey("D", dX, r2Y);
+  ctx.fillStyle = "#ffffff";
 
-  ctx.fillStyle    = "#88ccff";
-  ctx.font         = '68px "Caveat", cursive';
-  ctx.textAlign    = "left";
-  ctx.textBaseline = "middle";
-  ctx.fillText("to sail", textX, CH / 2);
+  // ▲ Up  (where W was)
+  const ux = sX + KW / 2, uy = r1Y + KH / 2;
+  key(sX, r1Y);
+  tri(ux, uy - TH / 2,  ux - TW / 2, uy + TH / 2,  ux + TW / 2, uy + TH / 2);
+
+  // ◄ Left  (where A was)
+  const lx = aX + KW / 2, ly = r2Y + KH / 2;
+  key(aX, r2Y);
+  tri(lx - TH / 2, ly,  lx + TH / 2, ly - TW / 2,  lx + TH / 2, ly + TW / 2);
+
+  // ▼ Down  (where S was)
+  const dx = sX + KW / 2, dy = r2Y + KH / 2;
+  key(sX, r2Y);
+  tri(dx, dy + TH / 2,  dx - TW / 2, dy - TH / 2,  dx + TW / 2, dy - TH / 2);
+
+  // ► Right  (where D was)
+  const rx = dX + KW / 2, ry = r2Y + KH / 2;
+  key(dX, r2Y);
+  tri(rx + TH / 2, ry,  rx - TH / 2, ry - TW / 2,  rx - TH / 2, ry + TW / 2);
 
   return { canvas, CW, CH };
 }
@@ -169,13 +172,17 @@ function _sampleCanvas(canvas, CW, CH, maxPts = 1200) {
   const n = raw.length / 3;
   if (n <= maxPts) return raw;
 
-  const out  = [];
-  const step = n / maxPts;
-  for (let i = 0; i < maxPts; i++) {
-    const j = Math.floor(i * step) * 3;
-    out.push(raw[j], raw[j + 1], raw[j + 2]);
+  // Fisher-Yates shuffle so we subsample uniformly across all directions,
+  // not in raster-scan order (which causes horizontal banding).
+  for (let i = n - 1; i > 0; i--) {
+    const j  = Math.floor(Math.random() * (i + 1));
+    const i3 = i * 3, j3 = j * 3;
+    const tx = raw[i3], ty = raw[i3 + 1], tb = raw[i3 + 2];
+    raw[i3]     = raw[j3];     raw[i3 + 1] = raw[j3 + 1]; raw[i3 + 2] = raw[j3 + 2];
+    raw[j3]     = tx;          raw[j3 + 1] = ty;           raw[j3 + 2] = tb;
   }
-  return out;
+
+  return raw.slice(0, maxPts * 3);
 }
 
 // ── WASDHint ──────────────────────────────────────────────────────────────────
@@ -223,7 +230,7 @@ export class WASDHint {
 
     // World-space scale for the hint (canvas X→worldX, canvas Y→worldZ)
     // SCALE_Z inflated ~1.35× for camera-tilt foreshortening compensation.
-    const SCALE_X = 6.0;
+    const SCALE_X = 4.0;
     const SCALE_Z = SCALE_X * (CH / CW) * 1.35;
 
     this._posArr     = new Float32Array(n * 3);
@@ -260,9 +267,9 @@ export class WASDHint {
       this._velArr[i * 3 + 1] = 0;
       this._velArr[i * 3 + 2] = (Math.random() - 0.5) * 1.2;
 
-      const sz = 0.08 + bri * 0.06;
+      const sz = 0.05 + bri * 0.04;
       this._sizes[i]       = sz;
-      this._alphas[i]      = 0.60 + bri * 0.40;
+      this._alphas[i]      = 0.55 + bri * 0.45;
       this._baseSizes[i]   = sz;
       this._baseAlphas[i]  = this._alphas[i];
     }
@@ -273,12 +280,12 @@ export class WASDHint {
     geo.setAttribute("aAlpha",   new THREE.BufferAttribute(this._alphas,  1));
 
     this._uniforms = {
-      uColor:     { value: new THREE.Color(0x55bbff) },
+      uColor:     { value: new THREE.Color(0xffffff) },
       uIntensity: { value: 0 },
       uAlphaMul:  { value: 0 },
       uTime:      { value: 0 },
-      uGlowMin:   { value: 1.6 },
-      uGlowMax:   { value: 3.2 },
+      uGlowMin:   { value: 1.0 },
+      uGlowMax:   { value: 1.8 },
     };
 
     const mat = new THREE.ShaderMaterial({

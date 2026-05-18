@@ -128,8 +128,10 @@ export class Environment {
     preloadGLTF("/models/terrain.glb").then((gltf) => {
       this.terrainModel = gltf.scene.clone(true);
 
+      const _meshNames = [];
       this.terrainModel.traverse((child) => {
         if (child.isMesh) {
+          _meshNames.push(child.name);
           child.castShadow = true;
           child.receiveShadow = true;
 
@@ -155,13 +157,32 @@ export class Environment {
         }
       });
 
+      // Assign staggered phase offsets so corals ripple rather than all pulsing in sync.
+      this.coralMeshes.forEach((c, i) => { c.phase = i * 0.10; });
+
       // Position and scale the terrain to fit around the lake
       this.terrainModel.position.set(0, 12, 0);
       this.terrainModel.scale.set(1, 1, 1);
 
       scene.add(this.terrainModel);
       this._sceneObjects.push(this.terrainModel);
+      console.log(`[Environment] Terrain mesh names:`, _meshNames);
       console.log(`[Environment] Coral meshes found: ${this.coralMeshes.length}`);
+
+      // Create one PointLight per coral (up to 8) so the beat pulse casts real
+      // colored light onto surrounding terrain — emissiveIntensity alone is invisible
+      // without bloom post-processing.
+      const MAX_LIGHTS = 8;
+      const _box = new THREE.Box3(), _ctr = new THREE.Vector3();
+      for (let i = 0; i < Math.min(this.coralMeshes.length, MAX_LIGHTS); i++) {
+        _box.setFromObject(this.coralMeshes[i].mesh);
+        _box.getCenter(_ctr);
+        const light = new THREE.PointLight(0x80ffee, 0, 5);
+        light.position.copy(_ctr);
+        scene.add(light);
+        this._sceneObjects.push(light);
+        this._coralLights.push({ light, phase: this.coralMeshes[i].phase });
+      }
     }).catch((e) => console.warn("[Environment] Failed to load terrain.glb:", e));
 
     // === Floating particles ===
@@ -187,6 +208,7 @@ export class Environment {
     this.smoothedEnergy = 0;
     this.fastEnergy     = 0;
     this.coralPulse     = 0;
+    this._coralLights   = [];
 
     engine.addUpdatable(this);
   }
@@ -222,9 +244,15 @@ export class Environment {
     this.coralPulse = Math.max(0, this.coralPulse - dt * 3.5); // decay ~0.3 s
 
     if (this.coralMeshes.length > 0) {
-      const coralIntensity = 0.3 + this.smoothedEnergy * 0.6 + this.coralPulse * 2.2;
-      for (const { materials } of this.coralMeshes) {
-        for (const m of materials) m.emissiveIntensity = coralIntensity;
+      for (let i = 0; i < this.coralMeshes.length; i++) {
+        const { materials, phase } = this.coralMeshes[i];
+        const phasedPulse = Math.max(0, this.coralPulse - phase);
+        const intensity = 0.3 + this.smoothedEnergy * 0.6 + phasedPulse * 2.5;
+        for (const m of materials) m.emissiveIntensity = intensity;
+      }
+      for (const { light, phase } of this._coralLights) {
+        const phasedPulse = Math.max(0, this.coralPulse - phase);
+        light.intensity = this.smoothedEnergy * 0.8 + phasedPulse * 4.0;
       }
     }
 

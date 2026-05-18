@@ -192,7 +192,7 @@ class SongCircle {
     this._ringScTgt    = 1.0;  // ring scale target
     this._ringPuTgt    = 0;    // ring pulse-tint target
 
-    const n = COUNT;
+    const n = song.particleCount ?? COUNT;
     this._n          = n;
     this._posArr     = new Float32Array(n * 3);
     this._velArr     = new Float32Array(n * 3);
@@ -773,7 +773,6 @@ export class SongCircleSystem {
 
   startGatherFrom(introFormPosArray) {
     const numCircles = this._circles.length;
-    const perCircle  = this._circles[0]._n;
 
     const bins   = Array.from({ length: numCircles }, () => []);
     const filled = new Int32Array(numCircles);
@@ -785,7 +784,7 @@ export class SongCircleSystem {
         const pz = introFormPosArray[i * 3 + 2];
         let bestCi = -1, bestD2 = Infinity;
         for (let ci = 0; ci < numCircles; ci++) {
-          if (filled[ci] >= perCircle) continue;
+          if (filled[ci] >= this._circles[ci]._n) continue;
           const c  = this._circles[ci];
           const dx = px - c.center.x, dz = pz - c.center.z;
           const d2 = dx * dx + dz * dz;
@@ -801,9 +800,17 @@ export class SongCircleSystem {
       if (circle._state !== STATE.WAITING) { circle.startGather(); continue; }
 
       const bin = bins[ci];
-      for (let j = 0; j < perCircle; j++) {
+      const introTotal = introFormPosArray ? introFormPosArray.length / 3 : 0;
+      for (let j = 0; j < circle._n; j++) {
         if (j < bin.length) {
           const src = bin[j];
+          circle._posArr[j * 3]     = introFormPosArray[src * 3];
+          circle._posArr[j * 3 + 1] = 0.15;
+          circle._posArr[j * 3 + 2] = introFormPosArray[src * 3 + 2];
+        } else if (introTotal > 0) {
+          // More circle slots than binned intro particles — pick any intro position
+          // so the particle still visually departs from the title text, not thin air.
+          const src = Math.floor(Math.random() * introTotal);
           circle._posArr[j * 3]     = introFormPosArray[src * 3];
           circle._posArr[j * 3 + 1] = 0.15;
           circle._posArr[j * 3 + 2] = introFormPosArray[src * 3 + 2];

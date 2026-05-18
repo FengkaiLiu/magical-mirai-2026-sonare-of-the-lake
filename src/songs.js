@@ -16,7 +16,7 @@ export const SONGS = [
   { title:"世界最後の音楽隊", artist:"夏山よつぎ×ど～ぱみん", url:"https://piapro.jp/t/B3yJ/20251215061727",
     options:{video:{beatId:4827296,chordId:2963757,repetitiveSegmentId:3086264,lyricId:126594,lyricDiffId:28629}},
     theme:{sky:0x3a8a5a, skyHorizon:0xa8d8b8, particle:0x70d898, water:0x2a9878, deep:0x185848},
-    chorus:[] },
+    chorus:[], particleCount: 2000 },
   { title:"トリツクロジー", artist:"鶴三", url:"https://piapro.jp/t/QBdL/20251215094303",
     options:{video:{beatId:4827297,chordId:2963758,repetitiveSegmentId:3086265,lyricId:126593,lyricDiffId:28630}},
     theme:{sky:0x4878a8, skyHorizon:0xb0c8d8, particle:0x90c0e0, water:0x2a88a8, deep:0x185068},

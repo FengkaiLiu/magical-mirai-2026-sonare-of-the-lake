@@ -219,7 +219,7 @@ export class GameScene {
     const f = new LyricFormation(
       this.engine, new THREE.Vector3(0, 0, 3), "Sonare of the Lake", 0x88e8ff,
       { textScale: 2.5, poolRadius: 24, letterSpacing: "10px", outlineOnly: false,
-        particleCount: 7200, skipGather: true,
+        particleCount: 8000, skipGather: true,
         fontFamily: '"Caveat", cursive', fontWeight: "400" },
     );
     this._introFormations = [f];

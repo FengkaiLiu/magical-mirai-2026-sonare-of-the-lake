@@ -124,6 +124,19 @@ scene.onPreloadProgress = (timerFrac, prewarmFrac) => {
   applyProgress();
 };
 
+// Synthetic heartbeat: creep songs progress forward at ~0.6 %/s so the bar
+// never appears frozen while waiting for TextAlive timer-ready events.
+// Real callbacks from onPreloadProgress override (Math.max) so this never
+// misrepresents actual readiness, and the tick stops once start is enabled.
+const _songsTick = setInterval(() => {
+  if (started) { clearInterval(_songsTick); return; }
+  stages.songs.progress = Math.max(
+    stages.songs.progress,
+    Math.min(stages.songs.progress + 0.006, 0.78),
+  );
+  applyProgress();
+}, 500);
+
 // ── Watchdog ────────────────────────────────────────────────────────────────
 // 20 s catches hard failures (TextAlive outage, CSP block, 404) without making
 // the user wait a full minute.  The songs threshold (0.8) already handles the
