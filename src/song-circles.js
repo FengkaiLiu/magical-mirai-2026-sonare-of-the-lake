@@ -7,8 +7,10 @@ import { waveHeight } from "./boat.js";
 import { SONGS } from "./songs.js";
 
 // Pre-load fonts so canvas text sampling uses the correct glyphs.
-document.fonts.load('bold 60px "Caveat"');
-document.fonts.load('400 60px "KiwiMaru"');
+// Include 72px because sampleTextPoints starts at sz=72 and shrinks down —
+// some browsers key the font cache by size and won't reuse a 60px load for 72px.
+document.fonts.load('bold 72px "KiwiMaru"');
+document.fonts.load('bold 60px "KiwiMaru"');
 
 // ── States ────────────────────────────────────────────────────────────────────
 
@@ -137,7 +139,7 @@ function sampleTextPoints(text, count) {
   ctx.fillRect(0, 0, cw, ch);
 
   let sz = 72;
-  const fnt = s => `bold ${s}px "Caveat","KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  const fnt = s => `bold ${s}px "KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
   ctx.font = fnt(sz);
   while (ctx.measureText(text).width > cw * 0.88 && sz > 14) { sz -= 2; ctx.font = fnt(sz); }
   ctx.fillStyle = "#fff";
@@ -242,7 +244,11 @@ class SongCircle {
 
     this._ring1 = this._makeGlowRing(engine, CIRCLE_R, col, 0.28);
 
-    this._textPts = sampleTextPoints(song.title, n);
+    // Defer sampling until first activate() — by then document.fonts.ready has
+    // resolved and Caveat/KiwiMaru are guaranteed loaded, ensuring consistent
+    // rendering whether this is the first session or a return-from-play session.
+    this._songTitle = song.title;
+    this._textPts   = null;
   }
 
   // Returns { mesh, uniforms, geo, mat } — a glowing ring lying flat in XZ.
@@ -374,6 +380,7 @@ class SongCircle {
   // ── Internal ──────────────────────────────────────────
 
   _assignTextTargets() {
+    if (!this._textPts) this._textPts = sampleTextPoints(this._songTitle, this._n);
     this._hasTarget.fill(0);
     const pts = this._textPts;
     if (!pts.length) return;
