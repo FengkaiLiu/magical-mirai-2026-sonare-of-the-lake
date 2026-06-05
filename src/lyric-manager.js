@@ -39,6 +39,10 @@ function pickFont(text) {
   return /[\u3000-\u9FFF\uF900-\uFAFF]/.test(text) ? _FONT_KIWIMARU : _FONT_CAVEAT;
 }
 
+// Max world-coordinate for sky lyric formation center — keeps particles visible inside mountains.
+// Tune this if particles still clip behind terrain from the edge.
+const SKY_POS_BOUNDARY = 73;
+
 // ── Shared sky particle geometry (session lifetime — never disposed per phrase) ──
 // 0.07 side length: at canvas scale 0.06, sampling step 1.5 px → 0.09 world-unit
 // spacing between particle centres. Particles are slightly smaller than the gap,
@@ -246,7 +250,11 @@ class SkyLyricSystem {
       }
     }
 
-    const skyPos = new THREE.Vector3(boatPos.x, 25, boatPos.z - 40);
+    const skyPos = new THREE.Vector3(
+      Math.max(-SKY_POS_BOUNDARY, Math.min(SKY_POS_BOUNDARY, boatPos.x)),
+      25,
+      Math.max(-SKY_POS_BOUNDARY, Math.min(SKY_POS_BOUNDARY, boatPos.z - 40)),
+    );
 
     const cachedPts = _sampleSkyPoints(text);
     const points    = cachedPts.map(p => ({

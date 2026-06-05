@@ -4,13 +4,9 @@
 
 import * as THREE from "three";
 import { waveHeight } from "./boat.js";
+import { IS_TOUCH } from "./device.js";
 import { SONGS } from "./songs.js";
-
-// Pre-load fonts so canvas text sampling uses the correct glyphs.
-// Include 72px because sampleTextPoints starts at sz=72 and shrinks down —
-// some browsers key the font cache by size and won't reuse a 60px load for 72px.
-document.fonts.load('bold 72px "KiwiMaru"');
-document.fonts.load('bold 60px "KiwiMaru"');
+import { getLang, onLangChange, t } from "./i18n.js";
 
 // ── States ────────────────────────────────────────────────────────────────────
 
@@ -139,7 +135,7 @@ function sampleTextPoints(text, count) {
   ctx.fillRect(0, 0, cw, ch);
 
   let sz = 72;
-  const fnt = s => `bold ${s}px "KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  const fnt = s => `bold ${s}px sans-serif`;
   ctx.font = fnt(sz);
   while (ctx.measureText(text).width > cw * 0.88 && sz > 14) { sz -= 2; ctx.font = fnt(sz); }
   ctx.fillStyle = "#fff";
@@ -244,11 +240,15 @@ class SongCircle {
 
     this._ring1 = this._makeGlowRing(engine, CIRCLE_R, col, 0.28);
 
-    // Defer sampling until first activate() — by then document.fonts.ready has
-    // resolved and Caveat/KiwiMaru are guaranteed loaded, ensuring consistent
-    // rendering whether this is the first session or a return-from-play session.
-    this._songTitle = song.title;
-    this._textPts   = null;
+    // Defer sampling until first activate() — ensures fonts are ready.
+    this._songTitle   = song.title;
+    this._songTitleEn = song.titleEn ?? song.title;
+    this._textPts     = null;
+    this._textPtsLang = null; // which lang the cached _textPts was sampled for
+
+    // Invalidate text cache when language switches so the next activate()
+    // re-samples with the correct title.
+    onLangChange(() => { if (this._textPtsLang !== getLang()) this._textPts = null; });
   }
 
   // Returns { mesh, uniforms, geo, mat } — a glowing ring lying flat in XZ.
@@ -308,6 +308,12 @@ class SongCircle {
   activate() {
     const s = this._state;
     if (s === STATE.ACTIVE || s === STATE.ACTIVATING || s === STATE.WAITING) return;
+    // If interrupted during fade-in (boat already inside on first frame after return),
+    // snap alpha to full so particles don't stay invisible in ACTIVATING state.
+    if (s === STATE.FADING_IN) {
+      this._alphaMul = 1;
+      this._uniforms.uAlphaMul.value = 1;
+    }
     this._state     = STATE.ACTIVATING;
     this._stateTime = 0;
     this._assignTextTargets();
@@ -380,7 +386,12 @@ class SongCircle {
   // ── Internal ──────────────────────────────────────────
 
   _assignTextTargets() {
-    if (!this._textPts) this._textPts = sampleTextPoints(this._songTitle, this._n);
+    const lang = getLang();
+    if (!this._textPts || this._textPtsLang !== lang) {
+      const title = lang === "en" ? this._songTitleEn : this._songTitle;
+      this._textPts     = sampleTextPoints(title, this._n);
+      this._textPtsLang = lang;
+    }
     this._hasTarget.fill(0);
     const pts = this._textPts;
     if (!pts.length) return;
@@ -752,9 +763,11 @@ export class SongCircleSystem {
 
     this._enterHint = document.createElement("div");
     this._enterHint.id = "song-enter-hint";
-    this._enterHint.innerHTML = `Press <kbd>&#9166; Enter</kbd> to start`;
+    this._enterHint.innerHTML = t("enterStart");
     this._enterHint.style.display = "none";
     document.body.appendChild(this._enterHint);
+
+    onLangChange(() => { this._enterHint.innerHTML = t("enterStart"); });
 
     this._updatable = { update: (dt, el) => this._update(dt, el) };
     engine.addUpdatable(this._updatable);

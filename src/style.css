@@ -95,6 +95,11 @@ body {
     0 2px 8px rgba(0,0,0,0.7);
   font-family: 'Caveat', cursive;
 }
+html[lang="ja"] .intro-logo {
+  font-family: 'KiwiMaru', 'M PLUS Rounded 1c', 'Yu Gothic', 'Hiragino Sans', sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+}
 
 .intro-sub {
   font-size: clamp(1.1rem, 2.5vw, 2rem);
@@ -173,6 +178,187 @@ body {
 @keyframes startPulse {
   0%, 100% { box-shadow: 0 0 20px rgba(64,220,240,0.2); }
   50%       { box-shadow: 0 0 36px rgba(64,220,240,0.55); }
+}
+
+/* Secondary buttons row (Boat + Setting) */
+#intro-secondary-btns {
+  display: flex;
+  gap: 0.75rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+#intro-secondary-btns.ready {
+  opacity: 1;
+  pointer-events: all;
+}
+#intro-boat-btn,
+#intro-setting-btn {
+  padding: 0.45rem 1.6rem;
+  font-size: 0.88rem;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  color: rgba(200, 240, 255, 0.85);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(80, 210, 240, 0.35);
+  border-radius: 40px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+}
+#intro-boat-btn:hover,
+#intro-setting-btn:hover {
+  background: rgba(32, 160, 200, 0.25);
+  border-color: rgba(80, 210, 240, 0.65);
+}
+#intro-boat-btn:active,
+#intro-setting-btn:active {
+  transform: scale(0.96);
+}
+
+/* ── Intro modals (Boat / Settings) ──────────────────────────────── */
+.intro-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 15, 30, 0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: modalFadeIn 0.22s ease both;
+}
+.intro-modal.hidden { display: none; }
+
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.intro-modal-panel {
+  background: rgba(10, 28, 50, 0.92);
+  border: 1px solid rgba(80, 210, 240, 0.3);
+  border-radius: 16px;
+  padding: 2rem 2.4rem 1.8rem;
+  min-width: min(400px, 88vw);
+  max-width: min(520px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.4rem;
+  box-shadow: 0 0 60px rgba(30, 100, 140, 0.4), 0 0 120px rgba(30, 60, 100, 0.3);
+}
+
+.intro-modal-panel h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: rgba(200, 240, 255, 0.95);
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 20px rgba(64, 220, 240, 0.5);
+}
+
+.intro-modal-close {
+  padding: 0.45rem 2rem;
+  font-size: 0.88rem;
+  letter-spacing: 0.1em;
+  color: rgba(180, 220, 240, 0.8);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(80, 210, 240, 0.3);
+  border-radius: 40px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  margin-top: 0.3rem;
+}
+.intro-modal-close:hover {
+  background: rgba(32, 160, 200, 0.2);
+  border-color: rgba(80, 210, 240, 0.6);
+}
+
+/* Boat grid */
+#boat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem;
+  width: 100%;
+}
+.boat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.9rem 0.5rem 0.7rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1.5px solid rgba(80, 210, 240, 0.2);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, transform 0.12s;
+  color: rgba(200, 240, 255, 0.85);
+}
+.boat-card:hover {
+  background: rgba(32, 140, 180, 0.2);
+  border-color: rgba(80, 210, 240, 0.55);
+}
+.boat-card:active { transform: scale(0.95); }
+.boat-card.selected {
+  background: rgba(32, 160, 200, 0.25);
+  border-color: rgba(80, 220, 255, 0.8);
+  box-shadow: 0 0 16px rgba(64, 220, 240, 0.35);
+}
+.boat-card-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  background: color-mix(in srgb, var(--char-color) 25%, transparent);
+  border: 1.5px solid color-mix(in srgb, var(--char-color) 60%, transparent);
+}
+.boat-card-name {
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Settings rows */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  width: 100%;
+}
+#lang-label {
+  font-size: 0.95rem;
+  color: rgba(180, 225, 245, 0.85);
+  letter-spacing: 0.05em;
+}
+#lang-toggle {
+  display: flex;
+  gap: 0.45rem;
+}
+.lang-btn {
+  padding: 0.38rem 1.1rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  color: rgba(180, 220, 240, 0.75);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(80, 210, 240, 0.25);
+  border-radius: 30px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+.lang-btn:hover {
+  background: rgba(32, 140, 180, 0.2);
+  border-color: rgba(80, 210, 240, 0.5);
+}
+.lang-btn.active {
+  background: rgba(32, 160, 200, 0.3);
+  border-color: rgba(80, 220, 255, 0.75);
+  color: rgba(220, 245, 255, 0.98);
+  box-shadow: 0 0 12px rgba(64, 220, 240, 0.3);
 }
 
 /* Circle-reveal wipe */
@@ -257,7 +443,7 @@ body {
   gap: 0.5rem;
 }
 
-#pause-btn, #sky-btn {
+#pause-btn {
   background: rgba(255,255,255,0.15);
   border: 1px solid rgba(255,255,255,0.3);
   border-radius: 6px;
@@ -268,12 +454,7 @@ body {
   transition: background 0.2s, transform 0.1s;
 }
 
-#pause-btn:hover, #sky-btn:hover { background: rgba(255,255,255,0.25); }
-#sky-btn.active { 
-  background: rgba(64, 224, 208, 0.4); 
-  border-color: rgba(64, 224, 208, 0.8);
-}
-#sky-btn:active { transform: scale(0.95); }
+#pause-btn:hover { background: rgba(255,255,255,0.25); }
 
 #song-info {
   flex: 1;
@@ -346,6 +527,32 @@ body {
   box-shadow: 0 0 8px rgba(136, 232, 255, 0.3);
 }
 
+/* Menu-return circle "Enter to return" hint — warm amber variant */
+#menu-return-hint {
+  position: fixed;
+  color: rgba(255, 220, 160, 0.92);
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  text-shadow: 0 0 12px rgba(255, 180, 80, 0.7), 0 1px 3px rgba(0,0,0,0.6);
+  z-index: 10;
+  animation: enterHintPulse 2s ease-in-out infinite;
+}
+#menu-return-hint kbd {
+  display: inline-block;
+  padding: 2px 9px;
+  border: 1px solid rgba(255, 200, 100, 0.55);
+  border-bottom-width: 3px;
+  border-radius: 5px;
+  background: rgba(30, 15, 0, 0.55);
+  color: #ffdd99;
+  font-size: 0.88rem;
+  font-family: inherit;
+  box-shadow: 0 0 8px rgba(255, 180, 80, 0.3);
+}
+
 /* Song progress bar — top of screen during play */
 #song-progress-wrap {
   position: fixed;
@@ -370,4 +577,164 @@ body {
   pointer-events: none;
   border-radius: 0 2px 2px 0;
   transition: background 0.8s ease, box-shadow 0.8s ease;
+}
+
+/* ── Virtual joystick ─────────────────────────────────────────────── */
+.vjoystick-wrap {
+  position: fixed;
+  bottom: 44px;
+  left: 28px;
+  width: 120px;
+  height: 120px;
+  z-index: 30;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.vjoystick-base {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  position: relative;
+  box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.25);
+}
+.vjoystick-thumb {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: rgba(48, 200, 216, 0.42);
+  border: 1.5px solid rgba(128, 238, 255, 0.6);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform 0.08s ease;
+  box-shadow: 0 0 16px rgba(64, 220, 240, 0.45);
+  pointer-events: none;
+}
+
+/* ── Touch tap button (replaces keyboard hints on mobile) ─────────── */
+.touch-tap-btn {
+  display: inline-block;
+  padding: 10px 22px;
+  background: rgba(32, 160, 200, 0.28);
+  border: 1.5px solid rgba(80, 210, 240, 0.65);
+  border-radius: 40px;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  color: rgba(200, 240, 255, 0.95);
+  cursor: pointer;
+  box-shadow: 0 0 18px rgba(64, 220, 240, 0.32);
+  text-shadow: 0 0 10px rgba(136, 232, 255, 0.7);
+  transition: background 0.15s, transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+.touch-tap-btn:active {
+  background: rgba(32, 180, 230, 0.5);
+  transform: scale(0.95);
+}
+
+/* ── Portrait-mode warning ────────────────────────────────────────── */
+#portrait-warning {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10, 26, 46, 0.97);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 1.4rem;
+  color: rgba(180, 230, 255, 0.9);
+  font-size: 1.15rem;
+  text-align: center;
+  letter-spacing: 0.06em;
+  line-height: 1.6;
+}
+#portrait-warning .rotate-icon {
+  font-size: 3rem;
+  animation: rotatePulse 2s ease-in-out infinite;
+  display: block;
+}
+@keyframes rotatePulse {
+  0%, 100% { transform: rotate(0deg);   opacity: 0.7; }
+  50%       { transform: rotate(90deg);  opacity: 1.0; }
+}
+/* Portrait mode is now supported on mobile — warning hidden */
+
+/* ── Fullscreen button ────────────────────────────────────────────── */
+#fullscreen-btn {
+  display: none; /* shown only on touch devices below */
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 1.1rem;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  line-height: 1;
+}
+#fullscreen-btn:hover  { background: rgba(255,255,255,0.25); }
+#fullscreen-btn:active { transform: scale(0.93); }
+
+/* ── Mobile UI tweaks (all touch devices) ────────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  #fullscreen-btn { display: block; }
+
+  #pause-btn, #fullscreen-btn {
+    padding: 0.55rem 1.1rem;
+    font-size: 1rem;
+    min-height: 44px;
+  }
+
+  #song-progress-wrap        { height: 6px; }
+  #song-progress-wrap:hover  { height: 6px; }
+
+  #song-enter-hint,
+  #return-hint,
+  #menu-return-hint { font-size: 1.05rem; }
+}
+
+/* ── Portrait mobile layout ───────────────────────────────────────── */
+@media (orientation: portrait) and (pointer: coarse) {
+  /* HUD: two-row compact layout */
+  #hud {
+    flex-wrap: wrap;
+    gap: 0.3rem 0.6rem;
+    top: 0.4rem;
+    left: 0.5rem;
+    right: 0.5rem;
+    align-items: center;
+  }
+  .hud-btns { order: 1; gap: 0.3rem; }
+  #time      { order: 2; margin-left: auto; font-size: 0.85rem; }
+  #song-info {
+    order: 3;
+    flex: 0 0 100%;
+    text-align: left;
+    font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #controls-hint { display: none; }
+
+  /* Smaller buttons — portrait width is tight */
+  #pause-btn, #fullscreen-btn {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.9rem;
+    min-height: 38px;
+  }
+
+  /* Joystick: move to right side so left thumb is free for navigation */
+  .vjoystick-wrap {
+    left: auto;
+    right: 24px;
+  }
+
+  /* Select-hint: push up above joystick */
+  #select-hint { bottom: 170px; }
 }

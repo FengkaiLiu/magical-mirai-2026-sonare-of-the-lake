@@ -9,6 +9,7 @@
 import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { preloadGLTF } from "./asset-cache.js";
+import { getBoat } from "./i18n.js";
 
 class ParticleTrail {
   constructor(engine) {
@@ -140,9 +141,18 @@ export class Boat {
     // === Three.js mesh ===
     this.mesh = new THREE.Group();
 
-    preloadGLTF("models/miku-boat.glb")
+    // Use the player-selected boat GLB, falling back to miku if the model
+    // hasn't been added yet (only miku-boat.glb ships initially).
+    const selectedBoat = getBoat();
+    preloadGLTF(selectedBoat.glb)
       .then(gltf => this.setModel(gltf.scene.clone(true)))
-      .catch(err => console.error("Failed to load miku-boat.glb", err));
+      .catch(() => {
+        if (selectedBoat.fallback) {
+          preloadGLTF(selectedBoat.fallback)
+            .then(gltf => this.setModel(gltf.scene.clone(true)))
+            .catch(err => console.error("Failed to load boat model", err));
+        }
+      });
 
     // Lantern remains (for glow + pulse)
     const lantern = new THREE.PointLight(0xffcc55, 0.8, 8);
@@ -235,20 +245,40 @@ export class Boat {
           vel.z += forward.z * this.forwardForce * dt;
         }
       }
-    } else if (actions.forward) {
-      vel.x += forward.x * this.forwardForce * dt;
-      vel.z += forward.z * this.forwardForce * dt;
-    }
-    if (actions.backward) {
-      vel.x -= forward.x * this.forwardForce * 0.3 * dt;
-      vel.z -= forward.z * this.forwardForce * 0.3 * dt;
-    }
+    } else {
+      const jx   = actions.joystickX ?? 0;
+      const jy   = actions.joystickY ?? 0;
+      const jMag = Math.sqrt(jx * jx + jy * jy);
 
-    if (actions.left) {
-      this.body.angularVelocity.y += this.turnTorque * dt;
-    }
-    if (actions.right) {
-      this.body.angularVelocity.y -= this.turnTorque * dt;
+      if (jMag > 0.12) {
+        // ── Analog joystick: direct world-space movement ──────────────
+        // Desired boat heading: atan2(jx, -jy) maps stick direction to Y rotation
+        // (stick up = jy<0 → face -Z/forward; stick right = jx>0 → face +X/right)
+        const desiredAngle  = Math.atan2(-jx, -jy);
+        // Pure-Y quaternion: θ = 2*atan2(q.y, q.w)
+        const currentAngle  = 2 * Math.atan2(quat.y, quat.w);
+        let err = desiredAngle - currentAngle;
+        while (err >  Math.PI) err -= 2 * Math.PI;
+        while (err < -Math.PI) err += 2 * Math.PI;
+        // Proportional steering — snaps the boat toward stick direction
+        this.body.angularVelocity.y +=
+          Math.sign(err) * Math.min(Math.abs(err) * 6, this.turnTorque * 2) * dt;
+        // World-space thrust proportional to deflection magnitude
+        vel.x += jx * this.forwardForce * dt;
+        vel.z += jy * this.forwardForce * dt;
+      } else {
+        // ── Keyboard / no joystick ────────────────────────────────────
+        if (actions.forward) {
+          vel.x += forward.x * this.forwardForce * dt;
+          vel.z += forward.z * this.forwardForce * dt;
+        }
+        if (actions.backward) {
+          vel.x -= forward.x * this.forwardForce * 0.3 * dt;
+          vel.z -= forward.z * this.forwardForce * 0.3 * dt;
+        }
+        if (actions.left)  this.body.angularVelocity.y += this.turnTorque * dt;
+        if (actions.right) this.body.angularVelocity.y -= this.turnTorque * dt;
+      }
     }
 
     // Soft boundary: quadratic repulsion within 6 units of the play-area edge (±40).

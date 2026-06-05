@@ -1,31 +1,31 @@
 /**
- * ReturnCircle — a SongCircle-style portal that appears after a song ends.
+ * MenuReturnCircle — a particle-portal placed in the song-select scene that
+ * lets the player sail back to the title / main-menu screen.
  *
- * Particles gather from the last lyric formation into an orbit ring.
- * Boat enters → "Return to Title" text forms.
+ * Visually mirrors ReturnCircle (orbit ring + glow ring + text formation +
+ * dotted guide line) but lives at a fixed world position to the left of the
+ * song-selection area and gathers from a local scatter rather than a lyric
+ * formation hand-off.
+ *
+ * Boat enters → "← Menu" text forms.
  * Boat stays (or presses Enter) → TITLE_FADE → onReturn fires.
- * A dotted guide line floats on the water surface pointing from the
- * circle toward the boat while they are apart.
  */
 
 import * as THREE from "three";
 import { waveHeight } from "./boat.js";
-import { IS_TOUCH } from "./device.js";
 import { t } from "./i18n.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const COUNT       = 1200;
-const CIRCLE_R    = 2.2;
-const ORBIT_SPEED = 0.38;
+const COUNT        = 1200;
+const CIRCLE_R     = 2.2;
+const ORBIT_SPEED  = 0.38;
 const GATHER_SPEED = 5.0;
 const FORM_SPEED   = 9.0;
-const SPAWN_DIST     = 15;   // world units ahead of boat
-const SPAWN_BOUNDARY = 38;  // max |x|,|z| for circle center — keeps it inside the mountain ring
 const TEXT_W       = 34.0;
 const TEXT_H       = 7.2;
-const TEXT_FORWARD = -4.0; // Z offset from circle center where text forms
-const GUIDE_COUNT  = 9;    // particles in the dotted guide line
+const TEXT_FORWARD = -4.0;
+const GUIDE_COUNT  = 9;
 
 // ── States ────────────────────────────────────────────────────────────────────
 
@@ -38,7 +38,7 @@ const STATE = Object.freeze({
   TITLE_FADE: "titleFade",
 });
 
-// ── Shaders (mirrors SongCircle exactly) ──────────────────────────────────────
+// ── Shaders (identical to ReturnCircle / SongCircle) ─────────────────────────
 
 const _vert = /* glsl */ `
   attribute float aSize;
@@ -104,7 +104,6 @@ const _ringFrag = /* glsl */ `
   }
 `;
 
-// Simple guide-dot shader
 const _guideVert = /* glsl */ `
   attribute float aSize;
   attribute float aPhase;
@@ -128,7 +127,7 @@ const _guideFrag = /* glsl */ `
   }
 `;
 
-// ── Text sampling (same style as SongCircle) ──────────────────────────────────
+// ── Text sampling ─────────────────────────────────────────────────────────────
 
 function sampleText(text, count) {
   const cw = 2048, ch = 256;
@@ -163,17 +162,16 @@ function sampleText(text, count) {
   return pts;
 }
 
-// ── ReturnCircle ──────────────────────────────────────────────────────────────
+// ── MenuReturnCircle ──────────────────────────────────────────────────────────
 
-export class ReturnCircle {
+export class MenuReturnCircle {
   /**
-   * @param {object}      engine
-   * @param {object}      boat
-   * @param {number}      particleColor  — hex, from song.theme.particle
-   * @param {Float32Array|null} startPosArray — last lyric formation posArray (copy)
-   * @param {Function}    onReturn       — called when return is confirmed
+   * @param {object}        engine
+   * @param {object}        boat
+   * @param {THREE.Vector3} position   fixed world-space center (y is ignored, clamped to 0)
+   * @param {Function}      onReturn   fired when the player confirms return to menu
    */
-  constructor(engine, boat, particleColor, startPosArray, onReturn) {
+  constructor(engine, boat, position, onReturn) {
     this.engine    = engine;
     this.boat      = boat;
     this._onReturn = onReturn;
@@ -183,30 +181,17 @@ export class ReturnCircle {
     this._alphaMul  = 0;
     this._ringFade  = 0;
 
-    const col = new THREE.Color(particleColor ?? 0x88eeff);
+    // Warm amber — visually distinct from the blue/cyan song circles
+    const col = new THREE.Color(0xffcc66);
     this._col   = col;
     this._white = new THREE.Color(1.3, 1.3, 1.3);
     this._tmp   = new THREE.Color();
 
-    // Smooth visual transition lerp targets
     this._pulseEnv     = 0; this._pulseEnvTgt  = 0;
     this._compactBlend = 0; this._compactTgt   = 0;
     this._ringOpTgt    = 0; this._ringScTgt    = 1.0; this._ringPuTgt = 0;
 
-    // Place circle SPAWN_DIST units ahead of boat
-    const bp = boat.getPosition();
-    const q  = boat.body.quaternion;
-    const rfx = -2 * (q.x * q.z + q.w * q.y);
-    const rfz = -(1 - 2 * (q.x * q.x + q.y * q.y));
-    const rfl = Math.sqrt(rfx * rfx + rfz * rfz) || 1;
-    this.center = new THREE.Vector3(
-      bp.x + (rfx / rfl) * SPAWN_DIST,
-      0,
-      bp.z + (rfz / rfl) * SPAWN_DIST,
-    );
-    // Clamp so the circle stays inside the mountain ring and the player can always reach it.
-    this.center.x = Math.max(-SPAWN_BOUNDARY, Math.min(SPAWN_BOUNDARY, this.center.x));
-    this.center.z = Math.max(-SPAWN_BOUNDARY, Math.min(SPAWN_BOUNDARY, this.center.z));
+    this.center = new THREE.Vector3(position.x, 0, position.z);
 
     const n = COUNT;
     this._n           = n;
@@ -220,26 +205,15 @@ export class ReturnCircle {
     this._orbitPhase  = new Float32Array(n);
     this._targets     = new Float32Array(n * 3);
     this._hasTarget   = new Uint8Array(n);
-    this._gatherDelay = new Float32Array(n);
 
-    // Seed starting positions from last lyric formation if available
-    if (startPosArray && startPosArray.length >= n * 3) {
-      for (let i = 0; i < n; i++) {
-        this._posArr[i*3]     = startPosArray[i*3];
-        this._posArr[i*3 + 1] = startPosArray[i*3 + 1];
-        this._posArr[i*3 + 2] = startPosArray[i*3 + 2];
-      }
-    } else {
-      for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const r = 2 + Math.random() * 10;
-        this._posArr[i*3]     = bp.x + Math.cos(a) * r;
-        this._posArr[i*3 + 1] = 0.12;
-        this._posArr[i*3 + 2] = bp.z + Math.sin(a) * r;
-      }
-    }
-
+    // Scatter particles near the circle for the initial gather animation
+    const cx = this.center.x, cz = this.center.z;
     for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 2 + Math.random() * 12;
+      this._posArr[i*3]     = cx + Math.cos(a) * r;
+      this._posArr[i*3 + 1] = 0.12;
+      this._posArr[i*3 + 2] = cz + Math.sin(a) * r;
       this._sizeArr[i]    = 0.12 + Math.random() * 0.09;
       this._alphaArr[i]   = 0.75 + Math.random() * 0.25;
       this._orbitAng[i]   = Math.random() * Math.PI * 2;
@@ -271,13 +245,10 @@ export class ReturnCircle {
     // ── Glow ring ─────────────────────────────────────────────────────────────
     this._ring = this._makeRing(col);
 
-    // ── Text points ───────────────────────────────────────────────────────────
-    // Defer heavy canvas work to next frame to avoid constructor stutter.
-    // Lang is read at construction time — settings are only reachable from the
-    // intro screen, so language cannot change while a ReturnCircle is active.
+    // ── Text points — deferred one frame to avoid constructor jank ────────────
     this._textPts = null;
     requestAnimationFrame(() => {
-      if (!this._disposed) this._textPts = sampleText(t("returnToTitle"), n);
+      if (!this._disposed) this._textPts = sampleText(t("menuReturn"), n);
     });
 
     // ── Guide dots (dotted line from circle toward boat) ──────────────────────
@@ -285,7 +256,8 @@ export class ReturnCircle {
 
     // ── Screen-space hint ─────────────────────────────────────────────────────
     this._hintEl = document.createElement("div");
-    this._hintEl.id = "return-hint";
+    this._hintEl.id = "menu-return-hint";
+    this._hintEl.className = "return-hint-label";
     this._hintEl.innerHTML = t("enterReturn");
     this._hintEl.style.display = "none";
     document.body.appendChild(this._hintEl);
@@ -330,7 +302,6 @@ export class ReturnCircle {
     const sizes  = new Float32Array(GUIDE_COUNT);
     const phases = new Float32Array(GUIDE_COUNT);
     for (let g = 0; g < GUIDE_COUNT; g++) {
-      // Particles further from circle are slightly larger (closer to boat)
       sizes[g]  = 0.14 + (g / GUIDE_COUNT) * 0.16;
       phases[g] = (g / GUIDE_COUNT) * Math.PI * 2;
     }
@@ -374,8 +345,7 @@ export class ReturnCircle {
     const byX = Array.from({ length: n }, (_, i) => ({ idx: i, x: pos[i * 3] }));
     byX.sort((a, b) => a.x - b.x);
 
-    for (const { tx, tz, idx } of worldTargets) {
-      const p = pts[idx];
+    for (const { tx, tz } of worldTargets) {
       let lo = 0, hi = byX.length - 1;
       while (lo < hi) {
         const mid = (lo + hi) >> 1;
@@ -422,6 +392,7 @@ export class ReturnCircle {
     this._state     = STATE.TITLE_FADE;
     this._stateTime = 0;
     if (this._hintEl) this._hintEl.style.display = "none";
+    // Give the flash animation 700 ms before firing the transition
     setTimeout(() => this._onReturn?.(), 700);
   }
 
@@ -616,10 +587,8 @@ export class ReturnCircle {
         }
       }
 
-      // ── Guide dots ──────────────────────────────────────────────────────────
       this._updateGuide(dt, elapsed, boatPos, dist, energy);
 
-      // ── Enter hint ─────────────────────────────────────────────────────────
       if (this._state === STATE.ACTIVE) {
         this._hintWorldPos.set(cx, 0, cz + 3.5);
         this._hintWorldPos.project(this.engine.camera);
@@ -649,11 +618,10 @@ export class ReturnCircle {
       const gp  = this._guidePosArr;
       const dx  = boatPos.x - cx, dz = boatPos.z - cz;
       const len = Math.sqrt(dx*dx + dz*dz) || 1;
-      // Dots go from just outside ring to 65% toward boat
       const reach = Math.min(distToCircle * 0.65, 28);
       for (let g = 0; g < GUIDE_COUNT; g++) {
-        const t  = (g + 1) / (GUIDE_COUNT + 1);
-        const d  = CIRCLE_R + 0.8 + t * (reach - CIRCLE_R - 0.8);
+        const frac = (g + 1) / (GUIDE_COUNT + 1);
+        const d  = CIRCLE_R + 0.8 + frac * (reach - CIRCLE_R - 0.8);
         const gx = cx + (dx / len) * d;
         const gz = cz + (dz / len) * d;
         gp[g*3]     = gx;

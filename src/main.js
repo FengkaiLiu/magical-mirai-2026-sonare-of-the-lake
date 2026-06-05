@@ -11,24 +11,21 @@
 import * as THREE from "three";
 import { Engine } from "./engine.js";
 import { GameScene } from "./game-scene.js";
+import { BOATS, BOAT_COLORS, getLang, setLang, setBoatId, getBoatId, onLangChange, t } from "./i18n.js";
 
 const engine = new Engine(document.getElementById("app"));
 const scene  = new GameScene(engine);
 
 // ── DOM refs ─────────────────────────────────────────────────────────────────
-const progressFill = document.getElementById("intro-progress-fill");
-const progressPct  = document.getElementById("intro-progress-pct");
-const progressWrap = document.getElementById("intro-progress-wrap");
-const startBtn     = document.getElementById("intro-start-btn");
+const progressFill  = document.getElementById("intro-progress-fill");
+const progressPct   = document.getElementById("intro-progress-pct");
+const progressWrap  = document.getElementById("intro-progress-wrap");
+const startBtn      = document.getElementById("intro-start-btn");
+const boatBtn       = document.getElementById("intro-boat-btn");
+const settingBtn    = document.getElementById("intro-setting-btn");
+const secondaryBtns = document.getElementById("intro-secondary-btns");
 
 // ── Loading stages ───────────────────────────────────────────────────────────
-// Weights mirror the dominant cost of each stage so the bar moves at honest
-// speed.  Total must sum to 1.
-//   GLBs    (~5–10 MB)            → 25 %
-//   Fonts   (~10 MB across faces) → 10 %
-//   Shaders (compileAsync)        →  5 %
-//   Songs   (timer-ready, 6 × ~3–5 MB audio + TextAlive metadata) → 45 %
-//   Prewarm (per-phrase glyph sampling, 6 songs)                  → 15 %
 const stages = {
   glbs:    { weight: 0.25, progress: 0 },
   fonts:   { weight: 0.10, progress: 0 },
@@ -45,17 +42,6 @@ function applyProgress() {
   if (progressFill) progressFill.style.width  = pct + "%";
   if (progressPct)  progressPct.textContent   = pct + "%";
 
-  // Start can enable as soon as the four "must-have" stages are done.  Prewarm
-  // is nice-to-have — it runs in the background while the user watches the
-  // 5-second intro, and the only cost of an un-prewarmed phrase is a single
-  // ~15 ms hitch on its first render (still much better than the per-phrase
-  // jitter we had before any prewarm existed).  The bar keeps moving past
-  // this point until prewarm completes, so progress stays honest.
-  //
-  // Songs threshold is 0.8 (≥ 5 of 6) rather than 1.0 so that a single song
-  // whose Songle beat-sync timer is slow or failing doesn't hold the whole
-  // loading screen hostage.  _activatePlay already handles individual song
-  // fallbacks, so picking the one not-yet-ready song is safe.
   const coreReady = stages.glbs.progress    >= 1
                  && stages.fonts.progress   >= 1
                  && stages.shaders.progress >= 1
@@ -70,6 +56,7 @@ function revealAndEnable() {
   fadeOutReveal();
   progressWrap?.classList.add("hidden");
   if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
+  secondaryBtns?.classList.add("ready");
 }
 
 function fadeOutReveal() {
@@ -88,7 +75,6 @@ THREE.DefaultLoadingManager.onProgress = (_url, loaded, total) => {
 THREE.DefaultLoadingManager.onLoad = () => {
   stages.glbs.progress = 1;
   applyProgress();
-  // Stage 3: shader compile only starts after geometry is in.
   Promise.resolve().then(async () => {
     try {
       if (engine.renderer.compileAsync) {
@@ -104,30 +90,23 @@ THREE.DefaultLoadingManager.onLoad = () => {
   });
 };
 
-// ── Stage 2: Fonts (CSS @font-face + document.fonts.load calls in modules) ──
-// document.fonts.ready resolves once every font.load() queued before access has
-// finished.  All our load() calls live at module top level, so they're queued
-// by the time main.js runs this line.
+// ── Stage 2: Fonts ────────────────────────────────────────────────────────────
 document.fonts.ready.then(() => {
   stages.fonts.progress = 1;
   applyProgress();
 }).catch((e) => {
   console.warn("[main] Font preload failed — continuing.", e);
-  stages.fonts.progress = 1; // don't strand the bar
+  stages.fonts.progress = 1;
   applyProgress();
 });
 
-// ── Stages 4 & 5: Songs (timer-ready) + Prewarm (glyph sampling) ────────────
+// ── Stages 4 & 5: Songs + Prewarm ─────────────────────────────────────────────
 scene.onPreloadProgress = (timerFrac, prewarmFrac) => {
   stages.songs.progress   = timerFrac;
   stages.prewarm.progress = prewarmFrac;
   applyProgress();
 };
 
-// Synthetic heartbeat: creep songs progress forward at ~0.6 %/s so the bar
-// never appears frozen while waiting for TextAlive timer-ready events.
-// Real callbacks from onPreloadProgress override (Math.max) so this never
-// misrepresents actual readiness, and the tick stops once start is enabled.
 const _songsTick = setInterval(() => {
   if (started) { clearInterval(_songsTick); return; }
   stages.songs.progress = Math.max(
@@ -137,10 +116,7 @@ const _songsTick = setInterval(() => {
   applyProgress();
 }, 500);
 
-// ── Watchdog ────────────────────────────────────────────────────────────────
-// 20 s catches hard failures (TextAlive outage, CSP block, 404) without making
-// the user wait a full minute.  The songs threshold (0.8) already handles the
-// common case of 1 slow-timer song, so the watchdog is a genuine last resort.
+// ── Watchdog ─────────────────────────────────────────────────────────────────
 setTimeout(() => {
   if (!started) {
     console.warn("[main] Loading watchdog tripped — forcing ready state.", {
@@ -153,7 +129,176 @@ setTimeout(() => {
   }
 }, 20000);
 
-// ── Wiring ──────────────────────────────────────────────────────────────────
+// ── Translation helpers ───────────────────────────────────────────────────────
+
+function applyTranslations() {
+  const lang = getLang();
+
+  // Intro logo title
+  const logo = document.getElementById("intro-logo");
+  if (logo) logo.textContent = t("logoTitle");
+
+  // Start button
+  if (startBtn) startBtn.textContent = t("startBtn");
+
+  // Secondary buttons
+  if (boatBtn)    boatBtn.textContent    = t("boatBtn");
+  if (settingBtn) settingBtn.textContent = t("settingBtn");
+
+  // Modals
+  const boatTitle    = document.getElementById("boat-modal-title");
+  const settingTitle = document.getElementById("setting-modal-title");
+  const langLabel    = document.getElementById("lang-label");
+  const boatClose    = document.getElementById("boat-modal-close");
+  const settingClose = document.getElementById("setting-modal-close");
+  if (boatTitle)    boatTitle.textContent    = t("boatModalTitle");
+  if (settingTitle) settingTitle.textContent = t("settingTitle");
+  if (langLabel)    langLabel.textContent    = t("langLabel");
+  if (boatClose)    boatClose.textContent    = t("closeBtn");
+  if (settingClose) settingClose.textContent = t("closeBtn");
+
+  // Static game UI (in-scene elements)
+  const selectHint  = document.getElementById("select-hint");
+  const overlayP    = document.querySelector("#overlay p");
+  if (selectHint) selectHint.textContent = t("selectHint");
+  if (overlayP)   overlayP.textContent   = t("overlayText");
+
+  // Language toggle button active state
+  document.getElementById("lang-ja-btn")?.classList.toggle("active", lang === "ja");
+  document.getElementById("lang-en-btn")?.classList.toggle("active", lang === "en");
+
+  // Boat card names
+  document.querySelectorAll(".boat-card").forEach(card => {
+    const boat = BOATS.find(b => b.id === card.dataset.boatId);
+    if (boat) card.querySelector(".boat-card-name").textContent = lang === "ja" ? boat.ja : boat.en;
+  });
+}
+
+// ── Boat modal ────────────────────────────────────────────────────────────────
+
+function buildBoatGrid() {
+  const grid = document.getElementById("boat-grid");
+  if (!grid) return;
+  grid.innerHTML = "";
+  const lang = getLang();
+  BOATS.forEach(boat => {
+    const card = document.createElement("button");
+    card.className = "boat-card" + (getBoatId() === boat.id ? " selected" : "");
+    card.dataset.boatId = boat.id;
+
+    const avatar = document.createElement("div");
+    avatar.className = "boat-card-avatar";
+    avatar.style.setProperty("--char-color", BOAT_COLORS[boat.id] ?? "#88e8ff");
+    avatar.textContent = "⛵";
+
+    const nameEl = document.createElement("span");
+    nameEl.className = "boat-card-name";
+    nameEl.textContent = lang === "ja" ? boat.ja : boat.en;
+
+    card.appendChild(avatar);
+    card.appendChild(nameEl);
+    card.addEventListener("click", () => {
+      setBoatId(boat.id);
+      grid.querySelectorAll(".boat-card").forEach(c => c.classList.remove("selected"));
+      card.classList.add("selected");
+    });
+    grid.appendChild(card);
+  });
+}
+
+function openModal(id) {
+  document.getElementById(id)?.classList.remove("hidden");
+}
+function closeModal(id) {
+  document.getElementById(id)?.classList.add("hidden");
+}
+
+boatBtn?.addEventListener("click", () => {
+  buildBoatGrid();
+  applyTranslations();
+  openModal("boat-modal");
+});
+document.getElementById("boat-modal-close")?.addEventListener("click", () => closeModal("boat-modal"));
+document.getElementById("boat-modal")?.addEventListener("click", e => {
+  if (e.target === e.currentTarget) closeModal("boat-modal");
+});
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+
+settingBtn?.addEventListener("click", () => {
+  applyTranslations();
+  openModal("setting-modal");
+});
+document.getElementById("setting-modal-close")?.addEventListener("click", () => closeModal("setting-modal"));
+document.getElementById("setting-modal")?.addEventListener("click", e => {
+  if (e.target === e.currentTarget) closeModal("setting-modal");
+});
+
+document.getElementById("lang-ja-btn")?.addEventListener("click", () => {
+  setLang("ja");
+});
+document.getElementById("lang-en-btn")?.addEventListener("click", () => {
+  setLang("en");
+});
+
+// Re-apply translations whenever language changes
+onLangChange(() => applyTranslations());
+
+// Apply translations immediately on load
+applyTranslations();
+
+// ── Return-to-menu transition ─────────────────────────────────────────────────
+// Called by GameScene when the player confirms the MenuReturnCircle.
+// Sequence:
+//   1. Blue circle-reveal overlay snaps to fully opaque (covers 3D scene)
+//   2. Camera has already teleported to overhead in GameScene._beginReturnToMenu
+//   3. After one frame: restore intro-screen elements, start fading overlay out
+//   4. Overlay fades out (1.5 s) revealing the overhead lake view + title UI
+function showIntroScreen() {
+  const overlay = document.getElementById("circle-reveal");
+  if (overlay) {
+    // Remove the "gone" (display:none) class and any lingering opacity transition,
+    // then snap straight to fully opaque so the frame never shows the 3D jump.
+    overlay.classList.remove("gone");
+    overlay.style.transition = "none";
+    overlay.style.opacity    = "1";
+    // Force a reflow so the browser commits opacity:1 before any further changes.
+    void overlay.offsetHeight;
+  }
+
+  // One rAF guarantees the overlay rendered at full opacity before we modify
+  // any other DOM elements, preventing a single-frame flash.
+  requestAnimationFrame(() => {
+    // Restore intro screen (title + buttons).  The loading bar stays hidden
+    // because its ".hidden" class was added in revealAndEnable() and never removed.
+    const introEl = document.getElementById("intro-screen");
+    if (introEl) {
+      introEl.classList.remove("gone", "hidden");
+      // Override any lingering inline opacity from the original hide sequence.
+      introEl.style.opacity   = "1";
+      introEl.style.transform = "translateY(0)";
+    }
+    // Re-enable the Start button (it was disabled on the first click).
+    if (startBtn) startBtn.disabled = false;
+
+    // Begin fading out the overlay after a short hold so everything settles.
+    setTimeout(() => {
+      if (!overlay) return;
+      overlay.style.transition = "opacity 1.5s ease";
+      overlay.style.opacity    = "0";
+      setTimeout(() => {
+        overlay.classList.add("gone");
+        // Clean up inline overrides so the next return trip works identically.
+        overlay.style.transition = "";
+        overlay.style.opacity    = "";
+      }, 1500);
+    }, 300);
+  });
+}
+
+scene.onReturnToMenu = showIntroScreen;
+
+// ── Wiring ────────────────────────────────────────────────────────────────────
 startBtn?.addEventListener("click", () => {
   startBtn.disabled = true;
   scene.beginIntroSequence();

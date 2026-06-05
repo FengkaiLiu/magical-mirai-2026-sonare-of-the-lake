@@ -25,6 +25,9 @@ import { SongCircleSystem } from "./song-circles.js";
 import { WaterObjects } from "./water-objects.js";
 import { WASDHint } from "./wasd-hint.js";
 import { ReturnCircle } from "./return-circle.js";
+import { MenuReturnCircle } from "./menu-return-circle.js";
+import { IS_TOUCH } from "./device.js";
+import { t, getLang } from "./i18n.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -81,6 +84,12 @@ export class GameScene {
     this._lastPhraseForGate = null;
     this._endingTriggered  = false;
 
+    // ── Menu-return circle (select-state only) ─────────────────────────────
+    this._menuReturnCircle = null;
+    // main.js sets this to show the title screen + overlay when the player
+    // confirms the return-to-menu action.
+    this.onReturnToMenu    = null;
+
     // ── Preload progress reporting ─────────────────────────────────────────
     // main.js subscribes to onPreloadProgress to drive the loading bar; we
     // report two fractions: how many songs are timer-ready (audio+timer
@@ -113,6 +122,7 @@ export class GameScene {
   /** Populate a pre-created entry with a TextAlive Player and start loading. */
   _startPreload(song, entry) {
     const audioEl = document.createElement("audio");
+    // crossOrigin="anonymous" is required for createMediaElementSource (Web Audio routing).
     audioEl.crossOrigin = "anonymous";
     // Default <audio> preload is "metadata" — the browser only fetches enough to
     // know duration/codec, leaving real buffering until the first play() call.
@@ -216,11 +226,13 @@ export class GameScene {
 
   _spawnTitleFormations() {
     if (this._disposed) return;
+    const isJa = getLang() === "ja";
     const f = new LyricFormation(
-      this.engine, new THREE.Vector3(0, 0, 3), "Sonare of the Lake", 0x88e8ff,
+      this.engine, new THREE.Vector3(0, 0, 3), t("subTitle"), 0x88e8ff,
       { textScale: 2.5, poolRadius: 24, letterSpacing: "10px", outlineOnly: false,
         particleCount: 8000, skipGather: true,
-        fontFamily: '"Caveat", cursive', fontWeight: "400" },
+        fontFamily: isJa ? '"KiwiMaru", sans-serif' : '"Caveat", cursive',
+        fontWeight: isJa ? "400" : "700" },
     );
     this._introFormations = [f];
   }
@@ -259,6 +271,7 @@ export class GameScene {
       this._introActive = false;
       document.getElementById("select-hint")?.classList.add("visible");
       this.wasdHint?.show();
+      this._spawnMenuReturnCircle();
     }, 1800);
   }
 
@@ -347,6 +360,8 @@ export class GameScene {
     this.songCircles = null;
     this.wasdHint?.dispose();
     this.wasdHint = null;
+    this._menuReturnCircle?.dispose();
+    this._menuReturnCircle = null;
     for (const f of this._introFormations) f.dispose();
     this._introFormations = [];
   }
@@ -363,8 +378,6 @@ export class GameScene {
     const song = SONGS[songIndex];
     const pre  = this._ensurePreloadedPlayer(songIndex, song);
 
-    // Only show loading overlay when the preloaded player isn't timer-ready yet.
-    // If it's already ready, playback starts in <300 ms — no overlay needed.
     if (!pre.timerReady) {
       document.getElementById("overlay")?.classList.remove("hidden");
     }
@@ -398,7 +411,16 @@ export class GameScene {
     this._kickOffPlayback(pre);
     this._setupPlaybackFallback();
 
-    document.getElementById("sky-btn")?.addEventListener("click", () => this.toggleSkyMode());
+    document.getElementById("fullscreen-btn")?.addEventListener("click", () => {
+      const el = document.documentElement;
+      if (!document.fullscreenElement) {
+        (el.requestFullscreen?.() || el.webkitRequestFullscreen?.())
+          ?.catch(() => {});
+      } else {
+        (document.exitFullscreen?.() || document.webkitExitFullscreen?.())
+          ?.catch(() => {});
+      }
+    });
   }
 
   /**
@@ -438,9 +460,13 @@ export class GameScene {
       }));
     }
     const songInfo = document.getElementById("song-info");
-    if (songInfo) songInfo.textContent = `${song.title} / ${song.artist}`;
+    if (songInfo) {
+      const displayTitle = getLang() === "en" ? (song.titleEn ?? song.title) : song.title;
+      songInfo.textContent = `${displayTitle} / ${song.artist}`;
+    }
     const controlsHint = document.getElementById("controls-hint");
     if (controlsHint) {
+      controlsHint.textContent = t("controlsHint");
       controlsHint.style.opacity = "1";
       setTimeout(() => {
         controlsHint.style.transition = "opacity 1.5s ease";
@@ -574,6 +600,9 @@ export class GameScene {
    * preloaded player silently failed), nudge the AudioContext and retry
    * requestPlay().  Either way force-hide the overlay so the user is never
    * stuck on a black loading screen.
+   *
+   * On iOS: also set a 3 s timer to show a "Tap to start" overlay so the
+   * user can retry requestPlay() inside a fresh gesture context.
    */
   _setupPlaybackFallback() {
     this._playTimeout = setTimeout(() => {
@@ -593,11 +622,6 @@ export class GameScene {
 
   toggleSkyMode() {
     this.skyMode = !this.skyMode;
-    const skyBtn = document.getElementById("sky-btn");
-    if (skyBtn) {
-      skyBtn.textContent = this.skyMode ? "⛵ Lake View" : "🌌 Sky View";
-      skyBtn.classList.toggle("active", this.skyMode);
-    }
     this.cam.setSkyMode(this.skyMode);
     this.lyrics.setChorusMode(this.skyMode);
     if (this.skyMode) this.fishLyrics.clear();
@@ -710,8 +734,49 @@ export class GameScene {
 
     document.getElementById("select-hint")?.classList.add("visible");
 
+    this._spawnMenuReturnCircle();
+
     this.controls.locked = false;
     this._state = "select";
+  }
+
+  // ── Menu-return circle helpers ─────────────────────────────────────────────
+
+  // Fixed world position: to the left of the song-circle row (Z = -14, X = ±13.75)
+  // so the circle sits clearly apart from the 6 song portals and is reachable
+  // by sailing left from the boat's starting position near the origin.
+  _spawnMenuReturnCircle() {
+    if (this._disposed || this._menuReturnCircle) return;
+    this._menuReturnCircle = new MenuReturnCircle(
+      this.engine,
+      this.boat,
+      new THREE.Vector3(-20, 0, -6),
+      () => this._beginReturnToMenu(),
+    );
+  }
+
+  _beginReturnToMenu() {
+    if (this._state !== "select" || this._introActive) return;
+
+    this._introActive = true;
+    this.controls.locked = true;
+
+    document.getElementById("select-hint")?.classList.remove("visible");
+    this.wasdHint?.hide();
+
+    // Dispose the circle (it already fired its callback)
+    this._menuReturnCircle?.dispose();
+    this._menuReturnCircle = null;
+
+    // main.js drives the overlay fade-in + intro-screen restore
+    this.onReturnToMenu?.();
+
+    // Teleport camera and hide boat while the blue overlay covers the scene
+    this.cam.returnToOverhead();
+    this.boat.mesh.visible = false;
+    this.boat.body.position.set(0, 0.15, 0);
+    this.boat.body.velocity.set(0, 0, 0);
+    this.boat.body.angularVelocity.set(0, 0, 0);
   }
 
   // ── Full teardown ──────────────────────────────────────────────────────────

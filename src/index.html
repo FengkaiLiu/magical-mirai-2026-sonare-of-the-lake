@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Sonare of the Lake</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
@@ -14,7 +16,7 @@
 
     <!-- Title text -->
     <div id="intro-title">
-      <div class="intro-logo">Voyage to Melody</div>
+      <div class="intro-logo" id="intro-logo">Voyage to Melody</div>
 
       <!-- Loading phase -->
       <div id="intro-progress-wrap">
@@ -24,6 +26,36 @@
 
       <!-- Ready phase (hidden until load complete) -->
       <button id="intro-start-btn" disabled>Start</button>
+
+      <!-- Secondary buttons — always enabled, shown alongside Start -->
+      <div id="intro-secondary-btns">
+        <button id="intro-boat-btn">ボート</button>
+        <button id="intro-setting-btn">設定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Boat selection modal ─────────────────────────────────────── -->
+  <div id="boat-modal" class="intro-modal hidden">
+    <div class="intro-modal-panel">
+      <h2 id="boat-modal-title">ボート選択</h2>
+      <div id="boat-grid"></div>
+      <button class="intro-modal-close" id="boat-modal-close">閉じる</button>
+    </div>
+  </div>
+
+  <!-- ── Settings modal ──────────────────────────────────────────── -->
+  <div id="setting-modal" class="intro-modal hidden">
+    <div class="intro-modal-panel">
+      <h2 id="setting-modal-title">設定</h2>
+      <div class="setting-row">
+        <span id="lang-label">言語</span>
+        <div id="lang-toggle">
+          <button id="lang-ja-btn" class="lang-btn">日本語</button>
+          <button id="lang-en-btn" class="lang-btn">English</button>
+        </div>
+      </div>
+      <button class="intro-modal-close" id="setting-modal-close">閉じる</button>
     </div>
   </div>
 
@@ -44,11 +76,17 @@
   <!-- Song progress bar — top of screen during play -->
   <div id="song-progress-wrap"><div id="song-progress-fill"></div></div>
 
+  <!-- Portrait-mode warning (shown via CSS media query on narrow portrait screens) -->
+  <div id="portrait-warning">
+    <span class="rotate-icon">&#8635;</span>
+    <div>Please rotate your device<br>to landscape mode</div>
+  </div>
+
   <!-- HUD (hidden until play scene) -->
   <div id="hud">
     <div class="hud-btns">
       <button id="pause-btn">⏸</button>
-      <button id="sky-btn">🌌 Sky View</button>
+      <button id="fullscreen-btn" title="Fullscreen">⛶</button>
     </div>
     <span id="time">0:00 / 0:00</span>
     <span id="song-info"></span>

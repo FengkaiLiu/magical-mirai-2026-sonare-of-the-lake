@@ -21,7 +21,7 @@ export class CameraController {
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);
     this.currentLook = new THREE.Vector3(0, 0, 0);
     this.smoothing    = 0.08;  // frame-rate independent (boat follow)
-    this.skySmoothing = 0.025; // slow cinematic sweep into sky view
+    this.skySmoothing = 0.01; // slow cinematic sweep into sky view
     this._boatRef = null;
 
     // ── Intro / Dive state ──────────────────────────────────────────
@@ -97,6 +97,25 @@ export class CameraController {
 
   attachBoat(boat) {
     this._boatRef = boat;
+  }
+
+  /**
+   * Instantly snap the camera back to the overhead intro position.
+   * Called when the player returns to the main-menu screen from song select.
+   * The blue overlay covers the scene at this point so the teleport is invisible.
+   */
+  returnToOverhead() {
+    this.isIntro          = true;
+    this._diveStarted     = false;
+    this._diveTimer       = 0;
+    this.revealLock       = false;
+    this._revealLockEntered = false;
+    this._revealTransition = 0;
+    this.gsapOverride     = false;
+    this.currentPos.set(0, 90, 0);
+    this.currentLook.set(0, 0, 0);
+    this.camera.position.set(0, 90, 0);
+    this.camera.lookAt(0, 0, 0);
   }
 
   setSkyMode(enable) {
@@ -184,6 +203,17 @@ export class CameraController {
     if (this._boatRef) this.targetPos = this._boatRef.getPosition();
     if (!this.targetPos) return;
 
+    // Portrait mode: widen FOV and raise camera so the lake fits in a tall viewport.
+    const isPortrait = window.innerHeight > window.innerWidth;
+    const targetFov  = isPortrait ? 75 : 50;
+    if (Math.abs(this.camera.fov - targetFov) > 0.5) {
+      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.05);
+      this.camera.updateProjectionMatrix();
+    }
+    const activeHeight    = isPortrait ? 14  : this.height;
+    const activeDistance  = isPortrait ? 14  : this.distance;
+    const activeLookAhead = isPortrait ? 8   : this.lookAhead;
+
     // Ramp smoothing up from dive-speed (0.02) to normal (this.smoothing)
     // over _revealTransDur seconds to avoid a snap when revealLock first releases
     this._revealTransition = Math.min(this._revealTransDur,
@@ -194,12 +224,12 @@ export class CameraController {
     if (this.skyMode) {
       this._goalLook.set(this.targetPos.x, 15, this.targetPos.z - 40);
     } else {
-      this._goalLook.set(this.targetPos.x, 0, this.targetPos.z - this.lookAhead);
+      this._goalLook.set(this.targetPos.x, 0, this.targetPos.z - activeLookAhead);
     }
     this._goalPos.set(
       this.targetPos.x,
-      this.targetPos.y + (this.skyMode ? 2.5 : this.height),
-      this.targetPos.z + (this.skyMode ? 12 : this.distance)
+      this.targetPos.y + (this.skyMode ? 2.5 : activeHeight),
+      this.targetPos.z + (this.skyMode ? 12  : activeDistance)
     );
 
     const baseSmooth = this.skyMode ? this.skySmoothing : this.smoothing;
