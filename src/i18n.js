@@ -38,7 +38,7 @@ const STRINGS = {
     selectHint:     "曲サークルへ進んでスタート！",
     controlsHint:   "W A S D で航行",
     overlayText:    "読み込み中...",
-    enterStart:     `<kbd>&#9166; Enter</kbd> で開始`,
+    enterStart:     `<kbd>&#9166; Enter</kbd> でスタート`,
     enterReturn:    `<kbd>&#9166; Enter</kbd> で戻る`,
     returnToTitle:  "タイトルへ戻る",
     menuReturn:     "← タイトル",

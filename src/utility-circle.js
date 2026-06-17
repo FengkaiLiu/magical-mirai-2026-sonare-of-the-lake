@@ -28,7 +28,6 @@ const FORM_SPEED   = 9.0;
 const TEXT_W       = 34.0;
 const TEXT_H       = 7.2;
 const TEXT_FORWARD = -4.0;
-const GUIDE_COUNT  = 9;
 
 // ── States ────────────────────────────────────────────────────────────────────
 
@@ -103,29 +102,6 @@ const _ringFrag = /* glsl */ `
     vec3  col   = uColor * bright * glow
                 + vec3(1.0) * core * (0.55 + uPulse * 0.55);
     gl_FragColor = vec4(col, glow * uOpacity);
-  }
-`;
-
-const _guideVert = /* glsl */ `
-  attribute float aSize;
-  attribute float aPhase;
-  uniform  float uTime;
-  void main() {
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    float pulse = 0.7 + 0.3 * sin(uTime * 3.0 + aPhase);
-    gl_PointSize = aSize * pulse * (200.0 / -mv.z);
-    gl_Position  = projectionMatrix * mv;
-  }
-`;
-
-const _guideFrag = /* glsl */ `
-  uniform vec3  uColor;
-  uniform float uAlpha;
-  void main() {
-    float d = length(gl_PointCoord - vec2(0.5));
-    if (d > 0.5) discard;
-    float glow = exp(-d * d * 10.0) * 2.2;
-    gl_FragColor = vec4(uColor * glow, uAlpha * glow);
   }
 `;
 
@@ -293,9 +269,6 @@ export class UtilityCircle {
     requestAnimationFrame(_resample);
     onLangChange(() => requestAnimationFrame(_resample));
 
-    // ── Guide dots ────────────────────────────────────────────────────────────
-    this._initGuide(col);
-
     // ── Screen-space hint ─────────────────────────────────────────────────────
     this._hintEl = document.createElement("div");
     this._hintEl.className = "return-hint-label";
@@ -303,6 +276,7 @@ export class UtilityCircle {
     this._hintEl.style.display = "none";
     document.body.appendChild(this._hintEl);
     this._hintWorldPos = new THREE.Vector3();
+    this._offLang = onLangChange(() => { if (this._hintEl) this._hintEl.innerHTML = t("enterStart"); });
 
     // ── Floating 3D center object ─────────────────────────────────────────────
     this._centerPivot = new THREE.Object3D();
@@ -313,7 +287,7 @@ export class UtilityCircle {
 
     // ── Enter key listener ────────────────────────────────────────────────────
     this._onKeyDown = (e) => {
-      if (e.key === "Enter" && this._state === STATE.ACTIVE && !this._disposed)
+      if (e.key === "Enter" && (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) && !this._disposed)
         this._triggerActivate();
     };
     window.addEventListener("keydown", this._onKeyDown);
@@ -352,37 +326,6 @@ export class UtilityCircle {
     mesh.renderOrder   = 1;
     this.engine.scene.add(mesh);
     return { mesh, uniforms, geo, mat };
-  }
-
-  _initGuide(col) {
-    const pos    = new Float32Array(GUIDE_COUNT * 3);
-    const sizes  = new Float32Array(GUIDE_COUNT);
-    const phases = new Float32Array(GUIDE_COUNT);
-    for (let g = 0; g < GUIDE_COUNT; g++) {
-      sizes[g]  = 0.14 + (g / GUIDE_COUNT) * 0.16;
-      phases[g] = (g / GUIDE_COUNT) * Math.PI * 2;
-    }
-    const geo = new THREE.BufferGeometry();
-    this._guidePosAttr = new THREE.BufferAttribute(pos, 3);
-    geo.setAttribute("position", this._guidePosAttr);
-    geo.setAttribute("aSize",    new THREE.BufferAttribute(sizes,  1));
-    geo.setAttribute("aPhase",   new THREE.BufferAttribute(phases, 1));
-    this._guideUniforms = {
-      uColor: { value: col.clone().multiplyScalar(0.75) },
-      uAlpha: { value: 0 },
-      uTime:  { value: 0 },
-    };
-    const mesh = new THREE.Points(geo, new THREE.ShaderMaterial({
-      vertexShader: _guideVert, fragmentShader: _guideFrag,
-      uniforms: this._guideUniforms,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-    }));
-    mesh.frustumCulled = false;
-    mesh.renderOrder   = 1;
-    this._guideMesh    = mesh;
-    this._guidePosArr  = pos;
-    this._guideAlpha   = 0;
-    this.engine.scene.add(mesh);
   }
 
   _assignTextTargets() {
@@ -440,7 +383,6 @@ export class UtilityCircle {
     if (this._disposed) return;
 
     this._ring.uniforms.uTime.value = elapsed;
-    this._guideUniforms.uTime.value = elapsed;
     this._stateTime += dt;
 
     // Center object: float + slow rotation, hidden during initial gather
@@ -608,51 +550,20 @@ export class UtilityCircle {
       }
     }
 
-    this._updateGuide(dt, elapsed, boatPos, dist, energy);
-
-    if (this._state === STATE.ACTIVE) {
-      // Project the circle center into screen space and offset downward in pixels.
-      // Using (cx, 0, cz) rather than a world offset avoids the hint drifting
-      // off-screen when the circle is far from origin (e.g. x = −20).
-      this._hintWorldPos.set(cx, 0, cz);
+    if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+      // Project a point below the circle's edge into screen space.
+      // cz + CIRCLE_R + 1.0 places the hint just outside the bottom of the ring,
+      // matching the HINT_OFFSET convention used by song circles.
+      this._hintWorldPos.set(cx, 0, cz + CIRCLE_R + 1.0);
       this._hintWorldPos.project(this.engine.camera);
       const sx = (this._hintWorldPos.x + 1) / 2 * window.innerWidth;
       const sy = (-this._hintWorldPos.y + 1) / 2 * window.innerHeight;
       this._hintEl.style.left      = sx + "px";
-      this._hintEl.style.top       = (sy + 28) + "px";
+      this._hintEl.style.top       = sy + "px";
       this._hintEl.style.transform = "translateX(-50%)";
       this._hintEl.style.display   = "block";
     } else {
       this._hintEl.style.display = "none";
-    }
-  }
-
-  _updateGuide(dt, elapsed, boatPos, distToCircle, energy) {
-    const cx = this.center.x, cz = this.center.z;
-    const showGuide = (this._state === STATE.IDLE || this._state === STATE.GATHERING)
-                   && distToCircle > CIRCLE_R + 1.5 && distToCircle < 45;
-
-    this._guideAlpha = showGuide
-      ? Math.min(0.40, this._guideAlpha + dt * 0.7)
-      : Math.max(0,    this._guideAlpha - dt * 2.5);
-
-    this._guideUniforms.uAlpha.value = this._guideAlpha;
-
-    if (this._guideAlpha > 0.01) {
-      const gp  = this._guidePosArr;
-      const dx  = boatPos.x - cx, dz = boatPos.z - cz;
-      const len = Math.sqrt(dx*dx + dz*dz) || 1;
-      const reach = Math.min(distToCircle * 0.65, 28);
-      for (let g = 0; g < GUIDE_COUNT; g++) {
-        const frac = (g + 1) / (GUIDE_COUNT + 1);
-        const d  = CIRCLE_R + 0.8 + frac * (reach - CIRCLE_R - 0.8);
-        const gx = cx + (dx / len) * d;
-        const gz = cz + (dz / len) * d;
-        gp[g*3]     = gx;
-        gp[g*3 + 1] = waveHeight(gx, gz, elapsed, energy) + 0.18;
-        gp[g*3 + 2] = gz;
-      }
-      this._guidePosAttr.needsUpdate = true;
     }
   }
 
@@ -661,6 +572,7 @@ export class UtilityCircle {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._offLang?.();
     window.removeEventListener("keydown", this._onKeyDown);
     this._hintEl?.remove();
     this._hintEl = null;
@@ -671,7 +583,5 @@ export class UtilityCircle {
     this._pts.geometry.dispose();     this._pts.material.dispose();
     this.engine.scene.remove(this._ring.mesh);
     this._ring.geo.dispose();         this._ring.mat.dispose();
-    this.engine.scene.remove(this._guideMesh);
-    this._guideMesh.geometry.dispose(); this._guideMesh.material.dispose();
   }
 }
