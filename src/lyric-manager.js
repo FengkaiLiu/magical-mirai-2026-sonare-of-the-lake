@@ -202,7 +202,7 @@ class WaterDecal {
       opacity = Math.max(0, (this.lifetime - this.age) / fadeOut);
     }
 
-    // Pulse brightness with bass energy (same as old canvas version)
+    // Pulse brightness with bass energy.
     const finalOp            = Math.min(1.0, opacity * (1.0 + energy * 0.35));
     this.mesh.fillOpacity    = finalOp;
     this.mesh.outlineOpacity = finalOp * 0.75;
@@ -219,7 +219,7 @@ class WaterDecal {
 
 // ── Step 2: SkyLyricSystem ────────────────────────────────────────────────────
 //
-// InstancedMesh cloud particles (original canvas-sampling logic):
+// InstancedMesh cloud particles:
 //   Canvas pixel-samples the text to produce glyph-shape point targets.
 //   Particles start at random scatter origins and converge to target positions
 //   over convergenceTime using cubic ease-out, then drift upward and fade out.
@@ -384,7 +384,8 @@ export class LyricManager {
 
   setActiveColor(hexColor) {
     this.colorHex = hexColor;
-    // Sky lyric colour stays white — matches original behaviour
+    // Sky particles keep their per-shader colour; we only store the theme hex
+    // for any future themed code path that opts in.
   }
 
   setSkyConvergenceTime(t) {

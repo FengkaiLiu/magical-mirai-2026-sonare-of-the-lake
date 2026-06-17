@@ -4,7 +4,6 @@
 
 import * as THREE from "three";
 import { waveHeight } from "./boat.js";
-import { IS_TOUCH } from "./device.js";
 import { SONGS } from "./songs.js";
 import { getLang, onLangChange, t } from "./i18n.js";
 
@@ -19,7 +18,7 @@ const STATE = Object.freeze({
   ACTIVE:           "active",            // title fully formed, awaiting Enter
   RETURNING:        "returning",        // boat left radius; expanding back to idle
   SCATTERED:        "scattered",        // non-selected circle: blow apart and fade
-  SELECTED_SCATTER: "selectedScatter", // not currently used as a triggered state
+  SELECTED_SCATTER: "selectedScatter", // reserved variant — only triggerSelectedScatter() enters it
   TITLE_FADE:       "titleFade",        // selected circle: confirmation flash + dissolve
 });
 
@@ -247,8 +246,11 @@ class SongCircle {
     this._textPtsLang = null; // which lang the cached _textPts was sampled for
 
     // Invalidate text cache when language switches so the next activate()
-    // re-samples with the correct title.
-    onLangChange(() => { if (this._textPtsLang !== getLang()) this._textPts = null; });
+    // re-samples with the correct title. Hold the unsubscribe handle so dispose()
+    // can detach it; otherwise return-to-select cycles accumulate dead listeners.
+    this._offLang = onLangChange(() => {
+      if (this._textPtsLang !== getLang()) this._textPts = null;
+    });
   }
 
   // Returns { mesh, uniforms, geo, mat } — a glowing ring lying flat in XZ.
@@ -728,6 +730,8 @@ class SongCircle {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._offLang?.();
+    this._offLang = null;
     const sc = this.engine.scene;
     sc.remove(this._pts);  this._pts.geometry.dispose();  this._pts.material.dispose();
     sc.remove(this._ring1.mesh); this._ring1.geo.dispose(); this._ring1.mat.dispose();
@@ -767,7 +771,7 @@ export class SongCircleSystem {
     this._enterHint.style.display = "none";
     document.body.appendChild(this._enterHint);
 
-    onLangChange(() => { this._enterHint.innerHTML = t("enterStart"); });
+    this._offLang = onLangChange(() => { this._enterHint.innerHTML = t("enterStart"); });
 
     this._updatable = { update: (dt, el) => this._update(dt, el) };
     engine.addUpdatable(this._updatable);
@@ -914,6 +918,8 @@ export class SongCircleSystem {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._offLang?.();
+    this._offLang = null;
     window.removeEventListener("keydown", this._onKeyDown);
     this._enterHint.remove();
     this.engine.removeUpdatable(this._updatable);

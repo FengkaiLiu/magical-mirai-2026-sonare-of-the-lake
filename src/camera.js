@@ -13,9 +13,9 @@ export class CameraController {
     this.camera = engine.camera;
 
     // Camera placement (Bruno-style close follow)
-    this.height = 8;      // height above the boat (was 14)
-    this.distance = 10;   // distance behind the boat (was 16)
-    this.lookAhead = 2;   // forward offset of the look-at point (was 3)
+    this.height = 8;      // height above the boat
+    this.distance = 10;   // distance behind the boat
+    this.lookAhead = 2;   // forward offset of the look-at point
 
     // Smooth follow
     this.currentPos = new THREE.Vector3(0, this.height, this.distance);

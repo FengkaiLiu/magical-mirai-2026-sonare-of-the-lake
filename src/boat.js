@@ -141,8 +141,7 @@ export class Boat {
     // === Three.js mesh ===
     this.mesh = new THREE.Group();
 
-    // Use the player-selected boat GLB, falling back to miku if the model
-    // hasn't been added yet (only miku-boat.glb ships initially).
+    // Load the player-selected boat GLB; fall back to Miku if its file is missing.
     const selectedBoat = getBoat();
     preloadGLTF(selectedBoat.glb)
       .then(gltf => this.setModel(gltf.scene.clone(true)))
@@ -154,7 +153,6 @@ export class Boat {
         }
       });
 
-    // Lantern remains (for glow + pulse)
     const lantern = new THREE.PointLight(0xffcc55, 0.8, 8);
     lantern.position.set(0, 0.5, -0.4);
     lantern.castShadow = true;
@@ -407,7 +405,8 @@ export class Boat {
       if (child.isMesh) child.renderOrder = 1;
     });
 
-    // If there were primitive children (original boat), hide them
+    // Hide any non-light, non-GLTF placeholder children that were attached before
+    // the model arrived (defensive — current constructor only adds the lantern).
     this.mesh.children.forEach(child => {
       if (child !== gltfScene && !child.isPointLight) {
         child.visible = false;

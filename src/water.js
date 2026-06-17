@@ -1,6 +1,5 @@
 /**
- * Water — Low-Poly Stylized Lake
- * Adds shader-driven cloud shadows over src_beta version.
+ * Water — Low-Poly Stylized Lake with shader-driven cloud shadows.
  */
 
 import * as THREE from "three";

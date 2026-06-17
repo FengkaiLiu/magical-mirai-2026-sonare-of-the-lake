@@ -8,7 +8,7 @@
  * - Text formation is horizontal (flat in XZ plane)
  * - Fades out gracefully when replaced by newer phrases
  *
- * Managed by FishLyricSystem (max 3 active at once).
+ * Managed by FishLyricSystem (see MAX_PHRASES there for the active cap).
  */
 
 import * as THREE from "three";
@@ -174,6 +174,9 @@ export function sampleTextPoints(
     ly: 0.5 - p.y / canvasH,
   }));
 
+  // FIFO cap — across all 6 songs we see ~360 unique phrase texts at worst.
+  // Keep the cache bounded so the heap doesn't grow indefinitely on long sessions.
+  if (_textCache.size >= 200) _textCache.delete(_textCache.keys().next().value);
   _textCache.set(cacheKey, result);
   return result;
 }

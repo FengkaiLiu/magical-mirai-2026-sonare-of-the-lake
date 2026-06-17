@@ -89,11 +89,15 @@ export class Engine {
     this.updatables = [];
 
     // === Resize ===
-    window.addEventListener("resize", () => {
+    this._onResize = () => {
       this.camera.aspect = window.innerWidth / window.innerHeight;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
-    });
+    };
+    window.addEventListener("resize", this._onResize);
+
+    this._raf     = 0;
+    this._running = false;
   }
 
   /**
@@ -124,7 +128,10 @@ export class Engine {
    *   4. render   — three.js draw
    */
   start() {
+    if (this._running) return;
+    this._running = true;
     const tick = () => {
+      if (!this._running) return;
       this.clock.update();
       const dt = Math.min(this.clock.getDelta(), 0.05);
       this.elapsed = this.clock.getElapsed();
@@ -157,8 +164,14 @@ export class Engine {
       // 4. Render
       this.renderer.render(this.scene, this.camera);
 
-      requestAnimationFrame(tick);
+      this._raf = requestAnimationFrame(tick);
     };
-    tick();
+    this._raf = requestAnimationFrame(tick);
+  }
+
+  stop() {
+    this._running = false;
+    if (this._raf) { cancelAnimationFrame(this._raf); this._raf = 0; }
+    window.removeEventListener("resize", this._onResize);
   }
 }

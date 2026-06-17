@@ -73,6 +73,18 @@ export class GameScene {
       try { this.player.requestMediaSeek(Math.round(frac * dur)); } catch {}
     });
 
+    // One-time fullscreen toggle (bound once so multiple play sessions don't stack listeners).
+    document.getElementById("fullscreen-btn")?.addEventListener("click", () => {
+      const el = document.documentElement;
+      if (!document.fullscreenElement) {
+        (el.requestFullscreen?.() || el.webkitRequestFullscreen?.())
+          ?.catch(() => {});
+      } else {
+        (document.exitFullscreen?.() || document.webkitExitFullscreen?.())
+          ?.catch(() => {});
+      }
+    });
+
     // ── Play-state resources (null until _activatePlay) ────────────────────
     this.lyrics            = null;
     this.fishLyrics        = null;
@@ -133,7 +145,9 @@ export class GameScene {
     entry.audioEl = audioEl; // set synchronously so _activatePlay can use it immediately
 
     entry.player = new Player({ app: { token: "xTTinPuYYoHYLhnk" }, mediaElement: audioEl });
-    entry.player.addListener({
+    // Keep the listener handle so _attachPlaybackListeners can detach it — otherwise
+    // both listeners coexist on the same Player and onTimeUpdate/onTimerReady fire twice.
+    entry.preloadListener = {
       onAppReady: (app) => {
         entry.managed = app.managed;
         if (!app.managed) entry.player.createFromSongUrl(song.url, song.options);
@@ -181,7 +195,8 @@ export class GameScene {
           this._reportPreloadProgress();
         }
       },
-    });
+    };
+    entry.player.addListener(entry.preloadListener);
   }
 
   /** Push current preload progress to main.js for the loading-bar aggregator. */
@@ -204,7 +219,6 @@ export class GameScene {
         const bpm   = 60000 / avgMs;
         const ct    = Math.max(0.5, Math.min(2.5, 120 / bpm));
         this.lyrics.setSkyConvergenceTime(ct);
-        console.log(`[SkyLyric] BPM ≈ ${bpm.toFixed(1)}, convergence time = ${ct.toFixed(2)} s`);
       }
     }
   }
@@ -410,17 +424,6 @@ export class GameScene {
     this._attachPlaybackListeners(song, pre);
     this._kickOffPlayback(pre);
     this._setupPlaybackFallback();
-
-    document.getElementById("fullscreen-btn")?.addEventListener("click", () => {
-      const el = document.documentElement;
-      if (!document.fullscreenElement) {
-        (el.requestFullscreen?.() || el.webkitRequestFullscreen?.())
-          ?.catch(() => {});
-      } else {
-        (document.exitFullscreen?.() || document.webkitExitFullscreen?.())
-          ?.catch(() => {});
-      }
-    });
   }
 
   /**
@@ -520,6 +523,11 @@ export class GameScene {
   }
 
   _attachPlaybackListeners(song, pre) {
+    // Detach the preload listener so onTimerReady / onVideoReady / etc. don't fire twice.
+    if (pre.preloadListener) {
+      this.player.removeListener?.(pre.preloadListener);
+      pre.preloadListener = null;
+    }
     this.player.addListener({
       // Fires only if video metadata arrived after _activatePlay started.
       onVideoReady: (v) => {

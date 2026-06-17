@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "compress-terrain": "gltf-transform draco public/models/terrain.glb public/models/terrain.glb --method edgebreaker --quantize-position 14 --quantize-normal 10 --quantize-texcoord 12"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
@@ -16,6 +17,8 @@
     "troika-three-text": "^0.52.4"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^4.4.0",
+    "draco3dgltf": "^1.5.7",
     "vite": "^6.3.1"
   }
 }

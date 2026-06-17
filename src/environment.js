@@ -125,13 +125,11 @@ export class Environment {
     // Use asset-cache so the parsed GLTF is shared with any future consumer and
     // benefits from THREE.Cache's deduplicated network fetch.  Clone the scene so
     // local mutations (material clone, position shift) don't pollute the cached source.
-    preloadGLTF("/models/terrain.glb").then((gltf) => {
+    preloadGLTF("models/terrain.glb").then((gltf) => {
       this.terrainModel = gltf.scene.clone(true);
 
-      const _meshNames = [];
       this.terrainModel.traverse((child) => {
         if (child.isMesh) {
-          _meshNames.push(child.name);
           child.castShadow = true;
           child.receiveShadow = true;
 
@@ -166,8 +164,6 @@ export class Environment {
 
       scene.add(this.terrainModel);
       this._sceneObjects.push(this.terrainModel);
-      console.log(`[Environment] Terrain mesh names:`, _meshNames);
-      console.log(`[Environment] Coral meshes found: ${this.coralMeshes.length}`);
 
       // Create one PointLight per coral (up to 8) so the beat pulse casts real
       // colored light onto surrounding terrain — emissiveIntensity alone is invisible

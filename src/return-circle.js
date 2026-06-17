@@ -10,7 +10,6 @@
 
 import * as THREE from "three";
 import { waveHeight } from "./boat.js";
-import { IS_TOUCH } from "./device.js";
 import { t } from "./i18n.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -220,7 +219,6 @@ export class ReturnCircle {
     this._orbitPhase  = new Float32Array(n);
     this._targets     = new Float32Array(n * 3);
     this._hasTarget   = new Uint8Array(n);
-    this._gatherDelay = new Float32Array(n);
 
     // Seed starting positions from last lyric formation if available
     if (startPosArray && startPosArray.length >= n * 3) {
