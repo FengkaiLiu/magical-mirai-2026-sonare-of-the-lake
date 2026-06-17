@@ -12,6 +12,7 @@ import * as THREE from "three";
 import { Engine } from "./engine.js";
 import { GameScene } from "./game-scene.js";
 import { BOATS, BOAT_COLORS, getLang, setLang, setBoatId, getBoatId, onLangChange, t } from "./i18n.js";
+import { preloadAll } from "./asset-cache.js";
 
 const engine = new Engine(document.getElementById("app"));
 const scene  = new GameScene(engine);
@@ -24,6 +25,9 @@ const startBtn      = document.getElementById("intro-start-btn");
 const boatBtn       = document.getElementById("intro-boat-btn");
 const settingBtn    = document.getElementById("intro-setting-btn");
 const secondaryBtns = document.getElementById("intro-secondary-btns");
+
+// ── Preload all boat GLBs so they're cached before the Boat constructor runs ──
+preloadAll(BOATS.map(b => b.glb));
 
 // ── Loading stages ───────────────────────────────────────────────────────────
 const stages = {
@@ -199,6 +203,8 @@ function buildBoatGrid() {
     card.appendChild(nameEl);
     card.addEventListener("click", () => {
       setBoatId(boat.id);
+      scene.boat.swapModel(boat);
+      scene.updateBoatCircleModel(boat);
       grid.querySelectorAll(".boat-card").forEach(c => c.classList.remove("selected"));
       card.classList.add("selected");
     });
@@ -297,6 +303,17 @@ function showIntroScreen() {
 }
 
 scene.onReturnToMenu = showIntroScreen;
+
+// Open boat-select and settings modals from in-game utility circles
+scene.onOpenBoatModal = () => {
+  buildBoatGrid();
+  applyTranslations();
+  openModal("boat-modal");
+};
+scene.onOpenSettingsModal = () => {
+  applyTranslations();
+  openModal("setting-modal");
+};
 
 // ── Wiring ────────────────────────────────────────────────────────────────────
 startBtn?.addEventListener("click", () => {

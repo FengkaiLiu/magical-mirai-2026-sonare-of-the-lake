@@ -386,6 +386,21 @@ export class Boat {
     return Math.sqrt(v.x * v.x + v.z * v.z);
   }
 
+  /** Swap to a different boat definition at runtime (e.g. from the boat-select modal). */
+  swapModel(boat) {
+    if (this._model) {
+      this.mesh.remove(this._model);
+      this._model.traverse(child => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      });
+      this._model = null;
+    }
+    preloadGLTF(boat.glb)
+      .then(gltf => this.setModel(gltf.scene.clone(true)))
+      .catch(err => console.error("[Boat] swapModel failed", err));
+  }
+
   /**
    * Replaces current placeholder geometry with a GLTF model.
    * Handles scale, orientation, and visibility toggling.

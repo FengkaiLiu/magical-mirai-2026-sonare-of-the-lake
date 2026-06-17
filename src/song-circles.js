@@ -239,18 +239,26 @@ class SongCircle {
 
     this._ring1 = this._makeGlowRing(engine, CIRCLE_R, col, 0.28);
 
-    // Defer sampling until first activate() — ensures fonts are ready.
     this._songTitle   = song.title;
     this._songTitleEn = song.titleEn ?? song.title;
     this._textPts     = null;
-    this._textPtsLang = null; // which lang the cached _textPts was sampled for
+    this._textPtsLang = null;
 
-    // Invalidate text cache when language switches so the next activate()
-    // re-samples with the correct title. Hold the unsubscribe handle so dispose()
+    // Pre-sample text staggered by circle index so each one lands in a different
+    // frame and the getImageData readbacks don't all spike on the same frame.
+    const _resample = () => {
+      if (this._disposed) return;
+      const lang = getLang();
+      const title = lang === "en" ? this._songTitleEn : this._songTitle;
+      this._textPts     = sampleTextPoints(title, this._n);
+      this._textPtsLang = lang;
+    };
+    let _delay = index;
+    const _staggeredSample = () => { if (_delay-- > 0) { requestAnimationFrame(_staggeredSample); return; } _resample(); };
+    requestAnimationFrame(_staggeredSample);
+    // Re-sample when language switches. Hold the unsubscribe handle so dispose()
     // can detach it; otherwise return-to-select cycles accumulate dead listeners.
-    this._offLang = onLangChange(() => {
-      if (this._textPtsLang !== getLang()) this._textPts = null;
-    });
+    this._offLang = onLangChange(() => { if (this._textPtsLang !== getLang()) requestAnimationFrame(_resample); });
   }
 
   // Returns { mesh, uniforms, geo, mat } — a glowing ring lying flat in XZ.

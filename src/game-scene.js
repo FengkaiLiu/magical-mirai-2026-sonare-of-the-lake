@@ -25,9 +25,10 @@ import { SongCircleSystem } from "./song-circles.js";
 import { WaterObjects } from "./water-objects.js";
 import { WASDHint } from "./wasd-hint.js";
 import { ReturnCircle } from "./return-circle.js";
-import { MenuReturnCircle } from "./menu-return-circle.js";
+import { UtilityCircle, makeGearObject } from "./utility-circle.js";
+import { preloadGLTF } from "./asset-cache.js";
 import { IS_TOUCH } from "./device.js";
-import { t, getLang } from "./i18n.js";
+import { t, getLang, getBoat } from "./i18n.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -96,11 +97,13 @@ export class GameScene {
     this._lastPhraseForGate = null;
     this._endingTriggered  = false;
 
-    // ── Menu-return circle (select-state only) ─────────────────────────────
-    this._menuReturnCircle = null;
-    // main.js sets this to show the title screen + overlay when the player
-    // confirms the return-to-menu action.
-    this.onReturnToMenu    = null;
+    // ── Utility circles (select-state only: boat select + settings) ───────────
+    this._boatCircle     = null;
+    this._settingsCircle = null;
+    // main.js sets these to open the respective modal when a circle is entered.
+    this.onOpenBoatModal     = null;
+    this.onOpenSettingsModal = null;
+    this.onReturnToMenu      = null;
 
     // ── Preload progress reporting ─────────────────────────────────────────
     // main.js subscribes to onPreloadProgress to drive the loading bar; we
@@ -285,7 +288,7 @@ export class GameScene {
       this._introActive = false;
       document.getElementById("select-hint")?.classList.add("visible");
       this.wasdHint?.show();
-      this._spawnMenuReturnCircle();
+      this._spawnUtilityCircles();
     }, 1800);
   }
 
@@ -374,8 +377,10 @@ export class GameScene {
     this.songCircles = null;
     this.wasdHint?.dispose();
     this.wasdHint = null;
-    this._menuReturnCircle?.dispose();
-    this._menuReturnCircle = null;
+    this._boatCircle?.dispose();
+    this._boatCircle = null;
+    this._settingsCircle?.dispose();
+    this._settingsCircle = null;
     for (const f of this._introFormations) f.dispose();
     this._introFormations = [];
   }
@@ -742,49 +747,54 @@ export class GameScene {
 
     document.getElementById("select-hint")?.classList.add("visible");
 
-    this._spawnMenuReturnCircle();
+    this._spawnUtilityCircles();
 
     this.controls.locked = false;
     this._state = "select";
   }
 
-  // ── Menu-return circle helpers ─────────────────────────────────────────────
+  // ── Utility circles (boat select + settings) ──────────────────────────────
 
-  // Fixed world position: to the left of the song-circle row (Z = -14, X = ±13.75)
-  // so the circle sits clearly apart from the 6 song portals and is reachable
-  // by sailing left from the boat's starting position near the origin.
-  _spawnMenuReturnCircle() {
-    if (this._disposed || this._menuReturnCircle) return;
-    this._menuReturnCircle = new MenuReturnCircle(
-      this.engine,
-      this.boat,
-      new THREE.Vector3(-20, 0, -6),
-      () => this._beginReturnToMenu(),
-    );
+  // Both utility circles on the left side, stacked vertically — boat select at (-20, 0, -4), settings below at (-20, 0, 4).
+  _spawnUtilityCircles() {
+    if (this._disposed) return;
+
+    if (!this._boatCircle) {
+      this._boatCircle = new UtilityCircle(
+        this.engine, this.boat,
+        new THREE.Vector3(-20, 0, -4),
+        { color: 0xff88cc, textKey: "boatBtn", onActivate: () => this.onOpenBoatModal?.() },
+      );
+      const selectedBoat = getBoat();
+      preloadGLTF(selectedBoat.glb).then(gltf => {
+        if (this._disposed || !this._boatCircle) return;
+        const model = gltf.scene.clone(true);
+        model.scale.setScalar(0.13);
+        this._boatCircle.setCenterObject(model);
+      }).catch(() => {});
+    }
+
+    if (!this._settingsCircle) {
+      const gear = makeGearObject(0xffaa44);
+      gear.scale.setScalar(0.65);
+      this._settingsCircle = new UtilityCircle(
+        this.engine, this.boat,
+        new THREE.Vector3(-20, 0, 4),
+        { color: 0xffaa44, textKey: "settingBtn", onActivate: () => this.onOpenSettingsModal?.() },
+      );
+      this._settingsCircle.setCenterObject(gear);
+    }
   }
 
-  _beginReturnToMenu() {
-    if (this._state !== "select" || this._introActive) return;
-
-    this._introActive = true;
-    this.controls.locked = true;
-
-    document.getElementById("select-hint")?.classList.remove("visible");
-    this.wasdHint?.hide();
-
-    // Dispose the circle (it already fired its callback)
-    this._menuReturnCircle?.dispose();
-    this._menuReturnCircle = null;
-
-    // main.js drives the overlay fade-in + intro-screen restore
-    this.onReturnToMenu?.();
-
-    // Teleport camera and hide boat while the blue overlay covers the scene
-    this.cam.returnToOverhead();
-    this.boat.mesh.visible = false;
-    this.boat.body.position.set(0, 0.15, 0);
-    this.boat.body.velocity.set(0, 0, 0);
-    this.boat.body.angularVelocity.set(0, 0, 0);
+  /** Call after the player changes boat in the modal to update the circle preview. */
+  updateBoatCircleModel(boat) {
+    if (!this._boatCircle) return;
+    preloadGLTF(boat.glb).then(gltf => {
+      if (this._disposed || !this._boatCircle) return;
+      const model = gltf.scene.clone(true);
+      model.scale.setScalar(0.13);
+      this._boatCircle.setCenterObject(model);
+    }).catch(() => {});
   }
 
   // ── Full teardown ──────────────────────────────────────────────────────────
