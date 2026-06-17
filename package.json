@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "compress-terrain": "gltf-transform draco public/models/terrain.glb public/models/terrain.glb --method edgebreaker --quantize-position 14 --quantize-normal 10 --quantize-texcoord 12"
+    "compress-terrain": "gltf-transform draco public/models/terrain.glb public/models/terrain.glb --method edgebreaker --quantize-position 14 --quantize-normal 10 --quantize-texcoord 12",
+    "subset-fonts": "node scripts/subset-fonts.mjs"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",
@@ -19,6 +20,8 @@
   "devDependencies": {
     "@gltf-transform/cli": "^4.4.0",
     "draco3dgltf": "^1.5.7",
+    "kanji": "^0.19.3",
+    "subset-font": "^2.5.0",
     "vite": "^6.3.1"
   }
 }

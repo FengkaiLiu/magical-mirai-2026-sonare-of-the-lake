@@ -5,3 +5,7 @@ dist/
 *.local
 .claude
 docs/
+
+# Font subsetting sources — kept locally for re-running `npm run subset-fonts`.
+# If lost, redownload from https://fonts.google.com/specimen/Kiwi+Maru
+fonts/*.full.ttf
