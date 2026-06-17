@@ -611,13 +611,17 @@ export class UtilityCircle {
     this._updateGuide(dt, elapsed, boatPos, dist, energy);
 
     if (this._state === STATE.ACTIVE) {
-      this._hintWorldPos.set(cx, 0, cz + 3.5);
+      // Project the circle center into screen space and offset downward in pixels.
+      // Using (cx, 0, cz) rather than a world offset avoids the hint drifting
+      // off-screen when the circle is far from origin (e.g. x = −20).
+      this._hintWorldPos.set(cx, 0, cz);
       this._hintWorldPos.project(this.engine.camera);
       const sx = (this._hintWorldPos.x + 1) / 2 * window.innerWidth;
       const sy = (-this._hintWorldPos.y + 1) / 2 * window.innerHeight;
-      this._hintEl.style.left    = sx + "px";
-      this._hintEl.style.top     = sy + "px";
-      this._hintEl.style.display = "block";
+      this._hintEl.style.left      = sx + "px";
+      this._hintEl.style.top       = (sy + 28) + "px";
+      this._hintEl.style.transform = "translateX(-50%)";
+      this._hintEl.style.display   = "block";
     } else {
       this._hintEl.style.display = "none";
     }

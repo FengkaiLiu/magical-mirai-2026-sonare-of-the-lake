@@ -95,7 +95,46 @@ export class WaterObjects {
       const modelLift = -box.min.y * NOTE_MODEL_SCALE + 0.2;
       const haloLift  = NOTE_HALO_RADIUS  * NOTE_MODEL_SCALE + 0.2;
       this._noteLiftY = Math.max(0.2, modelLift, haloLift);
+
+      // Prewarm: force geometry upload + shader compilation for the note materials
+      // so the first natural spawn doesn't cause a one-frame GPU stall.
+      // Position far off-world with frustumCulled=false so it's drawn (triggering
+      // the upload) but invisible to the player.
+      if (!this._disposed) {
+        const dummy = gltf.scene.clone(true);
+        dummy.position.set(9999, 0, 9999);
+        dummy.traverse(c => {
+          if (!c.isMesh) return;
+          c.frustumCulled = false;
+          c.material = c.material.clone();
+          c.material.transparent = true;
+          c.material.depthWrite  = false;
+        });
+        // Add halo sphere so its shader variant also warms up
+        dummy.add(new THREE.Mesh(getNoteHaloGeo(),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.BackSide })));
+        this.engine.scene.add(dummy);
+        requestAnimationFrame(() => {
+          // Do NOT call material.dispose() here — cloned materials share texture
+          // references with gltf.scene originals, so dispose() would release the
+          // shared textures and cause all subsequent notes to render white.
+          this.engine.scene.remove(dummy);
+        });
+      }
     }).catch(e => console.warn("[WaterObjects] Failed to load musicnote.glb:", e));
+
+    // Prewarm plank geometry + material (module-level, never drawn until first _createPlank).
+    {
+      const dummyMat = _PLANK_MAT.clone();
+      dummyMat.transparent = true;
+      dummyMat.opacity = 0.001;
+      const dummyPlank = new THREE.Mesh(_PLANK_GEO, dummyMat);
+      dummyPlank.frustumCulled = false;
+      dummyPlank.position.set(9999, 0, 9999);
+      engine.scene.add(dummyPlank);
+      requestAnimationFrame(() => { engine.scene.remove(dummyPlank); dummyMat.dispose(); });
+    }
 
     engine.addUpdatable(this);
   }
@@ -149,7 +188,11 @@ export class WaterObjects {
   _createPlank(px, pz) {
     const wy  = waveHeight(px, pz, this._elapsed, this._energy) + 0.05;
     const spawnY = wy - 0.72;
-    const mesh = new THREE.Mesh(_PLANK_GEO, _PLANK_MAT);
+    // Clone material per plank so we can fade opacity independently.
+    const mat = _PLANK_MAT.clone();
+    mat.transparent = true;
+    mat.opacity = 0;
+    const mesh = new THREE.Mesh(_PLANK_GEO, mat);
     mesh.position.set(px, spawnY, pz);
     mesh.rotation.y = Math.random() * Math.PI;
     mesh.castShadow = true;
@@ -165,7 +208,7 @@ export class WaterObjects {
     body.collisionResponse = false;
     this.engine.world.addBody(body);
 
-    const plank = { mesh, body, alive: true, age: 0, _prevY: spawnY };
+    const plank = { mesh, body, mat, alive: true, age: 0, opacity: 0, _prevY: spawnY };
     body.addEventListener("collide", (event) => {
       if (!plank.alive) return;
       if (event.body === this._boatBody) { plank.alive = false; plank._pendingShatter = true; }
@@ -226,7 +269,7 @@ export class WaterObjects {
     body.position.set(pos.x, wy, pos.z);
     this.engine.world.addBody(body);
 
-    const note = { mesh, body, color, alive: true, age: 0, fadeOut: false, opacity: 0.9 };
+    const note = { mesh, body, color, alive: true, age: 0, fadeOut: false, opacity: 0 };
     body.addEventListener("collide", (event) => {
       if (!note.alive || note.fadeOut) return;
       if (event.body === this._boatBody) { note.fadeOut = true; note._pendingHit = true; }
@@ -318,6 +361,7 @@ export class WaterObjects {
       const p = this._planks[i];
       if (!p.alive) { this._planks.splice(i, 1); continue; }
       p.age += dt;
+      if (p.opacity < 1) { p.opacity = Math.min(1, p.opacity + dt * 2.5); p.mat.opacity = p.opacity; }
       const bx = p.body.position.x, bz = p.body.position.z;
       const surfaceY = waveHeight(bx, bz, elapsed, this._energy) + 0.05;
       const riseT = Math.min(1, p.age / 1.2);
@@ -342,6 +386,10 @@ export class WaterObjects {
       n.mesh.position.y = wy;
       if (!n.fadeOut) n.body.position.set(bx, wy, bz);
       n.mesh.rotation.y += dt * 1.2;
+      if (!n.fadeOut && n.opacity < 0.9) {
+        n.opacity = Math.min(0.9, n.opacity + dt * 2.5);
+        n.mesh.traverse(child => { if (child.isMesh && child.material) child.material.opacity = n.opacity; });
+      }
       if (n.fadeOut) {
         n.opacity = Math.max(0, n.opacity - dt * 3);
         n.mesh.traverse(child => {
@@ -394,7 +442,7 @@ export class WaterObjects {
   _destroyPlank(p) {
     this._pendingBodyRemoval.push(p.body);
     this.engine.scene.remove(p.mesh);
-    // _PLANK_GEO and _PLANK_MAT are module-level shared — do NOT dispose.
+    p.mat?.dispose(); // per-plank cloned material; geometry is shared — do NOT dispose it
   }
 
   _destroyNote(n) {
