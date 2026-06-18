@@ -28,7 +28,7 @@ import { ReturnCircle } from "./return-circle.js";
 import { UtilityCircle, makeGearObject } from "./utility-circle.js";
 import { preloadGLTF } from "./asset-cache.js";
 import { IS_TOUCH } from "./device.js";
-import { t, getLang, getBoat, getVolume, onVolumeChange } from "./i18n.js";
+import { t, getLang, getBoat, getVolume, onVolumeChange, onLangChange } from "./i18n.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -128,19 +128,45 @@ export class GameScene {
       return entry;
     });
 
-    // Master volume: applied directly to each preloaded <audio> element since
-    // they pipe through the AudioContext as MediaElementSources — setting
-    // .volume on the source HTMLMediaElement scales the entire chain.
+    // Master volume: applied to a GainNode inserted into the Web Audio chain
+    // for the currently-playing song, plus the .volume property of every
+    // not-yet-routed preloaded <audio> element.  HTMLMediaElement.volume is
+    // ignored once the element is piped through createMediaElementSource, so a
+    // GainNode is required for the live audio path.
     this._unsubVolume = onVolumeChange((v) => this._applyVolumeToAll(v));
+
+    // Refresh HUD strings whose text was committed when play started (song
+    // title + controls hint) so a language switch during gameplay re-localises.
+    this._currentSong = null;
+    this._unsubLang   = onLangChange(() => this._refreshHudLocale());
 
     this._updatable = { update: (dt, el) => this._update(dt, el) };
     engine.addUpdatable(this._updatable);
   }
 
+  _refreshHudLocale() {
+    const song = this._currentSong;
+    if (song) {
+      const songInfo = document.getElementById("song-info");
+      if (songInfo) {
+        const displayTitle = getLang() === "en" ? (song.titleEn ?? song.title) : song.title;
+        songInfo.textContent = `${displayTitle} / ${song.artist}`;
+      }
+    }
+    const controlsHint = document.getElementById("controls-hint");
+    if (controlsHint) controlsHint.textContent = t("controlsHint");
+  }
+
   _applyVolumeToAll(v) {
+    // Preloaded (not-yet-routed) elements: their default output is still live,
+    // so .volume controls them.  This matters for songs the user hasn't picked
+    // yet (preview/seek would otherwise play at full volume).
     for (const pre of this._preloadedSongs ?? []) {
       if (pre.audioEl) pre.audioEl.volume = v;
     }
+    // Currently-playing song is routed through Web Audio — its actual output
+    // gain is controlled by _masterGain, not the audioEl's .volume.
+    if (this._masterGain) this._masterGain.gain.value = v;
   }
 
   // ── Song preloading ────────────────────────────────────────────────────────
@@ -479,6 +505,9 @@ export class GameScene {
         hud.style.opacity    = "1";
       }));
     }
+    // Remember the active song so _refreshHudLocale can re-render the title
+    // strip if the player switches language during play.
+    this._currentSong = song;
     const songInfo = document.getElementById("song-info");
     if (songInfo) {
       const displayTitle = getLang() === "en" ? (song.titleEn ?? song.title) : song.title;
@@ -518,9 +547,17 @@ export class GameScene {
       this.analyser         = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.audioData        = new Uint8Array(this.analyser.frequencyBinCount);
+      // Master gain sits between analyser and destination so the analyser still
+      // sees the un-attenuated signal — visual reactivity stays consistent at
+      // any volume.  Required because once the <audio> element is piped through
+      // createMediaElementSource, its own .volume property no longer affects
+      // the routed output.
+      this._masterGain      = this.audioContext.createGain();
+      this._masterGain.gain.value = getVolume();
       const source = this.audioContext.createMediaElementSource(pre.audioEl);
       source.connect(this.analyser);
-      this.analyser.connect(this.audioContext.destination);
+      this.analyser.connect(this._masterGain);
+      this._masterGain.connect(this.audioContext.destination);
       this.env.setAudioAnalyser(this.analyser, this.audioData);
     } catch (e) {
       console.warn("AudioContext setup failed — audio reactivity disabled.", e);
@@ -823,6 +860,7 @@ export class GameScene {
     if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
 
     if (this._unsubVolume) { this._unsubVolume(); this._unsubVolume = null; }
+    if (this._unsubLang)   { this._unsubLang();   this._unsubLang   = null; }
 
     this._lyricGate?.dispose();
     this._lyricGate = null;
