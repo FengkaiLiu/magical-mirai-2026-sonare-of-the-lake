@@ -11,8 +11,9 @@
 import * as THREE from "three";
 import { Engine } from "./engine.js";
 import { GameScene } from "./game-scene.js";
-import { BOATS, BOAT_COLORS, getLang, setLang, setBoatId, getBoatId, onLangChange, t, getVolume, setVolume } from "./i18n.js";
+import { BOATS, BOAT_COLORS, getLang, setLang, setBoatId, getBoatId, onLangChange, t } from "./i18n.js";
 import { preloadAll } from "./asset-cache.js";
+import { sfxStart, sfxResume } from "./sfx.js";
 
 const engine = new Engine(document.getElementById("app"));
 const scene  = new GameScene(engine);
@@ -61,6 +62,7 @@ function revealAndEnable() {
   progressWrap?.classList.add("hidden");
   if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
   secondaryBtns?.classList.add("ready");
+  sfxStart();
 }
 
 function fadeOutReveal() {
@@ -165,13 +167,11 @@ function applyTranslations() {
   const hudBoatTitle    = document.getElementById("hud-boat-title");
   const hudSettingTitle = document.getElementById("hud-setting-title");
   const hudLangLabel    = document.getElementById("hud-lang-label");
-  const hudVolLabel     = document.getElementById("hud-volume-label");
   const hudBoatBtn      = document.getElementById("hud-boat-btn");
   const hudSettingBtn   = document.getElementById("hud-setting-btn");
   if (hudBoatTitle)    hudBoatTitle.textContent    = t("boatBtn");
   if (hudSettingTitle) hudSettingTitle.textContent = t("settingTitle");
   if (hudLangLabel)    hudLangLabel.textContent    = t("langLabel");
-  if (hudVolLabel)     hudVolLabel.textContent     = t("volumeLabel");
   if (hudBoatBtn)      hudBoatBtn.title            = t("boatBtn");
   if (hudSettingBtn)   hudSettingBtn.title         = t("settingTitle");
 
@@ -305,6 +305,9 @@ function showIntroScreen() {
     // Re-enable the Start button (it was disabled on the first click).
     if (startBtn) startBtn.disabled = false;
 
+    // Resume beach ambient when back on the intro screen.
+    sfxResume();
+
     // Begin fading out the overlay after a short hold so everything settles.
     setTimeout(() => {
       if (!overlay) return;
@@ -379,7 +382,6 @@ function toggleHudPopover(which) {
   if (willOpen) {
     if (isBoat) buildBoatGrid("hud-boat-grid");
     applyTranslations();
-    syncVolumeUI();
   }
 }
 
@@ -415,25 +417,5 @@ document.addEventListener("keydown", (e) => {
 // HUD language toggle — same store as the intro modal, just different buttons.
 document.getElementById("hud-lang-ja-btn")?.addEventListener("click", () => setLang("ja"));
 document.getElementById("hud-lang-en-btn")?.addEventListener("click", () => setLang("en"));
-
-// HUD volume slider
-const volSlider = document.getElementById("hud-volume-slider");
-const volValue  = document.getElementById("hud-volume-value");
-
-function syncVolumeUI() {
-  const pct = Math.round(getVolume() * 100);
-  if (volSlider && document.activeElement !== volSlider) volSlider.value = String(pct);
-  if (volValue) volValue.textContent = String(pct);
-}
-
-volSlider?.addEventListener("input", () => {
-  const pct = parseInt(volSlider.value, 10);
-  setVolume(pct / 100);
-  if (volValue) volValue.textContent = String(pct);
-});
-// Drop focus on release so arrow keys / WASD return to gameplay cleanly.
-volSlider?.addEventListener("change", () => volSlider.blur());
-
-syncVolumeUI();
 
 engine.start();

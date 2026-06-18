@@ -3,7 +3,7 @@
 export const SONGS = [
   { title:"こたえて", titleEn:"Answer Me", artist:"imie", url:"https://piapro.jp/t/6W2N/20251215164617",
     options:{video:{beatId:4827293,chordId:2963754,repetitiveSegmentId:3086261,lyricId:126519,lyricDiffId:28645}},
-    theme:{sky:0x5aade0, skyHorizon:0xd4eaf8, particle:0xfff8d0, water:0x2a9bb5, deep:0x1a6080},
+    theme:{sky:0x5aade0, skyHorizon:0xd4eaf8, particle:0x99d0ff, water:0x2a9bb5, deep:0x1a6080},
     chorus:[[78000, 107000], [182000, 210000]] },
   { title:"アフター・ザ・カーテン", titleEn:"After the Curtain", artist:"Rulmry", url:"https://piapro.jp/t/zoqO/20251214200738",
     options:{video:{beatId:4827294,chordId:2963755,repetitiveSegmentId:3086262,lyricId:126591,lyricDiffId:28627}},

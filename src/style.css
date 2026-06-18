@@ -860,29 +860,11 @@ html[lang="ja"] .intro-logo {
   font-size: 0.78rem;
 }
 
-#hud-lang-label,
-#hud-volume-label {
+#hud-lang-label {
   font-size: 0.85rem;
   color: rgba(180, 225, 245, 0.85);
   letter-spacing: 0.05em;
   white-space: nowrap;
-}
-
-/* Volume slider — accent-color works in modern Chrome/Edge/Firefox/Safari 15.4+ */
-#hud-volume-slider {
-  flex: 1;
-  min-width: 100px;
-  height: 4px;
-  cursor: pointer;
-  accent-color: #6fd4f0;
-}
-
-#hud-volume-value {
-  min-width: 2.6em;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.75;
-  font-size: 0.82rem;
 }
 
 /* Mobile / portrait tweaks: stretch popover to full HUD width */

@@ -7,9 +7,11 @@
 > coalesce in the sky during choruses. Built for the Hatsune Miku "Magical Mirai
 > 2026" Programming Contest.
 
-## Authors
+## Authors - Team FBH
 
-- **Fengkai Liu** — Lead development, 3D modeling (terrain, environment, five of the six character boats), visual design
+### Overall Contributor
+
+- **Fengkai Liu** — Lead development，coding, 3D modeling (terrain, environment, five of the six character boats), visual design
 - **Brian Liu** — Creative direction and coding
 
 ### Asset Contributor
@@ -24,9 +26,9 @@
 
 The six designated songs from the Magical Mirai 2026 Song Contest are all selectable:
 
-| Song | Title (Romaji) | Artist |
+| Song | Song (English) | Artist |
 |------|----------------|--------|
-| こたえて | Answer Me | imie (Grand Prize) |
+| こたえて | Answer Me | imie |
 | アフター・ザ・カーテン | After the Curtain | Rulmry |
 | シャッターチャンス | Shutter Chance | 夜未アガリ |
 | 世界最後の音楽隊 | World's Last Orchestra | 夏山よつぎ × ど〜ぱみん |
@@ -35,7 +37,7 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 
 ## How to Play
 
-1. The intro screen shows a loading bar (real progress — five staged preloads).
+1. The intro screen shows a loading bar and a top-down view of the lake.
 2. Optionally pick a boat (Miku / Rin / Len / Luka / KAITO / MEIKO) and language (JA / EN).
 3. Press **Start**. The camera dives from above onto the lake.
 4. Sail (**W A S D** or arrow keys; touch joystick on mobile) into one of the six
@@ -54,40 +56,41 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 | [Troika Three Text](https://github.com/protectwise/troika) | Crisp SDF text rendering |
 | [GSAP](https://gsap.com/) | UI / camera tweens |
 | [Vite](https://vitejs.dev/) | Build & dev server |
+| [ClaudeCode](https://claude.com/product/claude-code) | Vibe-Coding |
 
 ## Project Structure
 
 ```
 ├── src/                    # All application code
 │   ├── index.html
-│   ├── main.js             # Bootstrap, loading bar, intro/menu UI
-│   ├── game-scene.js       # State machine: select → play → ending
-│   ├── engine.js           # Three.js + Cannon-es render/physics loop
-│   ├── water.js            # Stylized low-poly lake shader
-│   ├── water-objects.js    # Floating planks & musical notes
-│   ├── boat.js             # Player boat, controls binding, wake trail
-│   ├── camera.js           # Cinematic chase + dive + sky cameras
-│   ├── controls.js         # Keyboard + touch joystick input
-│   ├── environment.js      # Sky, sun, clouds, corals, ambient particles
-│   ├── lyric-manager.js    # Sky-mode lyric particles (chorus)
-│   ├── fish-school.js      # Particle-formation primitive
-│   ├── fish-lyric-system.js# Verse-mode lyric particle scheduler
-│   ├── song-circles.js     # Six glowing song-selection portals
-│   ├── return-circle.js    # End-of-song "return" ring
+│   ├── main.js               # Bootstrap, loading bar, intro/menu UI
+│   ├── game-scene.js         # State machine: select → play → ending
+│   ├── engine.js             # Three.js + Cannon-es render/physics loop
+│   ├── water.js              # Stylized low-poly lake shader
+│   ├── water-objects.js      # Floating planks & musical notes
+│   ├── boat.js               # Player boat, controls binding, wake trail
+│   ├── camera.js             # Cinematic chase + dive + sky cameras
+│   ├── controls.js           # Keyboard + touch joystick input
+│   ├── environment.js        # Sky, sun, clouds, corals, ambient particles
+│   ├── lyric-manager.js      # Sky-mode lyric particles (chorus)
+│   ├── fish-school.js        # Particle-formation primitive
+│   ├── fish-lyric-system.js  # Verse-mode lyric particle scheduler
+│   ├── song-circles.js       # Six glowing song-selection portals
+│   ├── return-circle.js      # End-of-song "return" ring
 │   ├── menu-return-circle.js # Back-to-title ring
-│   ├── wasd-hint.js        # First-time control hint particles
-│   ├── lyric-gate.js       # Generic phrase-detection helper
-│   ├── asset-cache.js      # Singleton GLTFLoader + DRACOLoader
-│   ├── songs.js            # Designated-song metadata + theme palettes
-│   ├── i18n.js             # JA / EN strings + boat catalogue
-│   ├── device.js           # Touch-device detection
+│   ├── wasd-hint.js          # First-time control hint particles
+│   ├── lyric-gate.js         # Generic phrase-detection helper
+│   ├── asset-cache.js        # Singleton GLTFLoader + DRACOLoader
+│   ├── songs.js              # Designated-song metadata + theme palettes
+│   ├── i18n.js               # JA / EN strings + boat catalogue
+│   ├── device.js             # Touch-device detection
 │   └── style.css
 ├── public/
-│   ├── models/             # All .glb assets (see Assets section)
-│   └── draco/              # Bundled DRACO decoder (locally hosted, no CDN)
-├── fonts/                  # Source font files (subsetted at build prep time)
+│   ├── models/               # All .glb assets (see Assets section)
+│   └── draco/                # Bundled DRACO decoder (locally hosted, no CDN)
+├── fonts/                    # Source font files (subsetted at build prep time)
 ├── scripts/
-│   └── subset-fonts.mjs    # KiwiMaru subsetter (run via npm run subset-fonts)
+│   └── subset-fonts.mjs      # KiwiMaru subsetter (run via npm run subset-fonts)
 ├── vite.config.js
 └── package.json
 ```
@@ -153,9 +156,9 @@ Sound effects bundled in `public/sfx/` are royalty-free assets sourced from
 [Pixabay Content License](https://pixabay.com/service/license-summary/).
 None are AI-generated.
 
-| File | Description | Source |
-|------|-------------|--------|
-| _(none yet — add rows as SFX are integrated)_ | | |
+| File | Description | Author | Source |
+|------|-------------|--------|--------|
+| `public/sfx/stereogenicstudio-beach-02-404144.mp3` | Ocean beach ambient loop | stereogenicstudio | [Pixabay](https://pixabay.com/sound-effects/nature-beach-02-404144/) |
 
 ## Notes for Reviewers
 
@@ -169,8 +172,7 @@ None are AI-generated.
   [TextAlive App API documentation](https://developer.textalive.jp/). It
   identifies the app to the API and carries no privileged scope, so committing
   it to source is the documented pattern. It is not a secret.
-- **Tested on:** Windows 10/11 (Chrome, Edge, Firefox), iPadOS Safari (landscape
-  and portrait).
+- **Tested on:** Windows/Mac , iPadOS Safari
 - **Mobile:** A virtual joystick replaces WASD on touch devices (detected via
   `(pointer: coarse)` media query).
 

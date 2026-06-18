@@ -598,12 +598,12 @@ export class ReturnCircle {
     this._pts.geometry.attributes.position.needsUpdate = true;
 
     // ── Boat proximity detection ──────────────────────────────────────────────
-    if (this._state !== STATE.TITLE_FADE && this._state !== STATE.GATHERING) {
+    if (this._state !== STATE.TITLE_FADE) {
       const boatPos = this.boat.getPosition();
       const dx = boatPos.x - cx, dz = boatPos.z - cz;
       const dist = Math.sqrt(dx*dx + dz*dz);
 
-      if (this._state === STATE.IDLE || this._state === STATE.RETURNING) {
+      if (this._state === STATE.IDLE || this._state === STATE.RETURNING || this._state === STATE.GATHERING) {
         if (dist < CIRCLE_R) {
           this._state = STATE.ACTIVATING; this._stateTime = 0;
           this._assignTextTargets();

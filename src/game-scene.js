@@ -28,7 +28,8 @@ import { ReturnCircle } from "./return-circle.js";
 import { UtilityCircle, makeGearObject } from "./utility-circle.js";
 import { preloadGLTF } from "./asset-cache.js";
 import { IS_TOUCH } from "./device.js";
-import { t, getLang, getBoat, getVolume, onVolumeChange, onLangChange } from "./i18n.js";
+import { t, getLang, getBoat, onLangChange } from "./i18n.js";
+import { sfxStop, sfxResume } from "./sfx.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -128,13 +129,6 @@ export class GameScene {
       return entry;
     });
 
-    // Master volume: applied to a GainNode inserted into the Web Audio chain
-    // for the currently-playing song, plus the .volume property of every
-    // not-yet-routed preloaded <audio> element.  HTMLMediaElement.volume is
-    // ignored once the element is piped through createMediaElementSource, so a
-    // GainNode is required for the live audio path.
-    this._unsubVolume = onVolumeChange((v) => this._applyVolumeToAll(v));
-
     // Refresh HUD strings whose text was committed when play started (song
     // title + controls hint) so a language switch during gameplay re-localises.
     this._currentSong = null;
@@ -157,18 +151,6 @@ export class GameScene {
     if (controlsHint) controlsHint.textContent = t("controlsHint");
   }
 
-  _applyVolumeToAll(v) {
-    // Preloaded (not-yet-routed) elements: their default output is still live,
-    // so .volume controls them.  This matters for songs the user hasn't picked
-    // yet (preview/seek would otherwise play at full volume).
-    for (const pre of this._preloadedSongs ?? []) {
-      if (pre.audioEl) pre.audioEl.volume = v;
-    }
-    // Currently-playing song is routed through Web Audio — its actual output
-    // gain is controlled by _masterGain, not the audioEl's .volume.
-    if (this._masterGain) this._masterGain.gain.value = v;
-  }
-
   // ── Song preloading ────────────────────────────────────────────────────────
 
   /** Populate a pre-created entry with a TextAlive Player and start loading. */
@@ -182,7 +164,6 @@ export class GameScene {
     // which is what we want for a select-then-play flow where audio readiness
     // is the dominant load-time bottleneck.
     audioEl.preload = "auto";
-    audioEl.volume = getVolume();
     entry.audioEl = audioEl; // set synchronously so _activatePlay can use it immediately
 
     entry.player = new Player({ app: { token: "xTTinPuYYoHYLhnk" }, mediaElement: audioEl });
@@ -346,6 +327,7 @@ export class GameScene {
     if (this.cam.revealLock && !this.boat._autoTarget) {
       this.cam.revealLock = false;
     }
+
   }
 
   // ── Select → Play cinematic ────────────────────────────────────────────────
@@ -427,6 +409,7 @@ export class GameScene {
 
   _activatePlay(songIndex) {
     this._state = "play";
+    sfxStop();
     this._activeSongIndex   = songIndex;
     this._endingTriggered   = false;
     this._lastPhraseForGate = null;
@@ -547,17 +530,9 @@ export class GameScene {
       this.analyser         = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       this.audioData        = new Uint8Array(this.analyser.frequencyBinCount);
-      // Master gain sits between analyser and destination so the analyser still
-      // sees the un-attenuated signal — visual reactivity stays consistent at
-      // any volume.  Required because once the <audio> element is piped through
-      // createMediaElementSource, its own .volume property no longer affects
-      // the routed output.
-      this._masterGain      = this.audioContext.createGain();
-      this._masterGain.gain.value = getVolume();
       const source = this.audioContext.createMediaElementSource(pre.audioEl);
       source.connect(this.analyser);
-      this.analyser.connect(this._masterGain);
-      this._masterGain.connect(this.audioContext.destination);
+      this.analyser.connect(this.audioContext.destination);
       this.env.setAudioAnalyser(this.analyser, this.audioData);
     } catch (e) {
       console.warn("AudioContext setup failed — audio reactivity disabled.", e);
@@ -800,6 +775,7 @@ export class GameScene {
 
     this.controls.locked = false;
     this._state = "select";
+    sfxResume();
   }
 
   // ── Utility circles (boat select + settings) ──────────────────────────────
@@ -859,7 +835,6 @@ export class GameScene {
 
     if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
 
-    if (this._unsubVolume) { this._unsubVolume(); this._unsubVolume = null; }
     if (this._unsubLang)   { this._unsubLang();   this._unsubLang   = null; }
 
     this._lyricGate?.dispose();
