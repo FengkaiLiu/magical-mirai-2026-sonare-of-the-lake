@@ -11,8 +11,8 @@
 
 ### Overall Contributor
 
-- **Fengkai Liu** — Lead development，coding, 3D modeling (terrain, environment, five of the six character boats), visual design
-- **Brian Liu** — Creative direction and coding
+- **Fengkai Liu** — Lead development，coding, 3D modeling (terrain, environment, five of the six character boats), visual design, QA
+- **Brian Liu** — Creative direction, coding, QA
 
 ### Asset Contributor
 
