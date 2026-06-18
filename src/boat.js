@@ -244,39 +244,16 @@ export class Boat {
         }
       }
     } else {
-      const jx   = actions.joystickX ?? 0;
-      const jy   = actions.joystickY ?? 0;
-      const jMag = Math.sqrt(jx * jx + jy * jy);
-
-      if (jMag > 0.12) {
-        // ── Analog joystick: direct world-space movement ──────────────
-        // Desired boat heading: atan2(jx, -jy) maps stick direction to Y rotation
-        // (stick up = jy<0 → face -Z/forward; stick right = jx>0 → face +X/right)
-        const desiredAngle  = Math.atan2(-jx, -jy);
-        // Pure-Y quaternion: θ = 2*atan2(q.y, q.w)
-        const currentAngle  = 2 * Math.atan2(quat.y, quat.w);
-        let err = desiredAngle - currentAngle;
-        while (err >  Math.PI) err -= 2 * Math.PI;
-        while (err < -Math.PI) err += 2 * Math.PI;
-        // Proportional steering — snaps the boat toward stick direction
-        this.body.angularVelocity.y +=
-          Math.sign(err) * Math.min(Math.abs(err) * 6, this.turnTorque * 2) * dt;
-        // World-space thrust proportional to deflection magnitude
-        vel.x += jx * this.forwardForce * dt;
-        vel.z += jy * this.forwardForce * dt;
-      } else {
-        // ── Keyboard / no joystick ────────────────────────────────────
-        if (actions.forward) {
-          vel.x += forward.x * this.forwardForce * dt;
-          vel.z += forward.z * this.forwardForce * dt;
-        }
-        if (actions.backward) {
-          vel.x -= forward.x * this.forwardForce * 0.3 * dt;
-          vel.z -= forward.z * this.forwardForce * 0.3 * dt;
-        }
-        if (actions.left)  this.body.angularVelocity.y += this.turnTorque * dt;
-        if (actions.right) this.body.angularVelocity.y -= this.turnTorque * dt;
+      if (actions.forward) {
+        vel.x += forward.x * this.forwardForce * dt;
+        vel.z += forward.z * this.forwardForce * dt;
       }
+      if (actions.backward) {
+        vel.x -= forward.x * this.forwardForce * 0.3 * dt;
+        vel.z -= forward.z * this.forwardForce * 0.3 * dt;
+      }
+      if (actions.left)  this.body.angularVelocity.y += this.turnTorque * dt;
+      if (actions.right) this.body.angularVelocity.y -= this.turnTorque * dt;
     }
 
     // Soft boundary: quadratic repulsion within 6 units of the play-area edge (±40).

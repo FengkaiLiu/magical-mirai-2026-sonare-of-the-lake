@@ -40,8 +40,8 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 1. The intro screen shows a loading bar and a top-down view of the lake.
 2. Optionally pick a boat (Miku / Rin / Len / Luka / KAITO / MEIKO) and language (JA / EN).
 3. Press **Start**. The camera dives from above onto the lake.
-4. Sail (**W A S D** or arrow keys; touch joystick on mobile) into one of the six
-   glowing particle circles to begin that song.
+4. Sail (**W A S D** or arrow keys) into one of the six glowing particle circles
+   to begin that song.
 5. During verses, lyric phrases form as schools of particles on the water surface;
    during choruses the camera lifts and lyrics converge in the sky.
 6. After the song ends, sail through the closing circle to return to song selection.
@@ -71,7 +71,7 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 │   ├── water-objects.js      # Floating planks & musical notes
 │   ├── boat.js               # Player boat, controls binding, wake trail
 │   ├── camera.js             # Cinematic chase + dive + sky cameras
-│   ├── controls.js           # Keyboard + touch joystick input
+│   ├── controls.js           # Keyboard input
 │   ├── environment.js        # Sky, sun, clouds, corals, ambient particles
 │   ├── lyric-manager.js      # Sky-mode lyric particles (chorus)
 │   ├── fish-school.js        # Particle-formation primitive
@@ -84,7 +84,6 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 │   ├── asset-cache.js        # Singleton GLTFLoader + DRACOLoader
 │   ├── songs.js              # Designated-song metadata + theme palettes
 │   ├── i18n.js               # JA / EN strings + boat catalogue
-│   ├── device.js             # Touch-device detection
 │   └── style.css
 ├── public/
 │   ├── models/               # All .glb assets (see Assets section)
@@ -180,9 +179,8 @@ None are AI-generated.
   [TextAlive App API documentation](https://developer.textalive.jp/). It
   identifies the app to the API and carries no privileged scope, so committing
   it to source is the documented pattern. It is not a secret.
-- **Tested on:** Windows/Mac , iPadOS Safari
-- **Mobile:** A virtual joystick replaces WASD on touch devices (detected via
-  `(pointer: coarse)` media query).
+- **Platform:** Desktop only (Windows / Mac). Keyboard (W A S D / arrow keys) is
+  required. Mobile and tablet browsers are not supported.
 
 ## References
 

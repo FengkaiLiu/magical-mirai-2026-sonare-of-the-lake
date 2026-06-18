@@ -62,7 +62,8 @@ function revealAndEnable() {
   progressWrap?.classList.add("hidden");
   if (startBtn) { startBtn.disabled = false; startBtn.classList.add("ready"); }
   secondaryBtns?.classList.add("ready");
-  sfxStart();
+  // sfxStart() is intentionally deferred to the Start button click so it runs
+  // inside a user gesture — Safari blocks audio started from async/timer callbacks.
 }
 
 function fadeOutReveal() {
@@ -339,6 +340,7 @@ scene.onOpenSettingsModal = () => {
 // ── Wiring ────────────────────────────────────────────────────────────────────
 startBtn?.addEventListener("click", () => {
   startBtn.disabled = true;
+  sfxStart(); // must run inside a user gesture so Safari allows audio playback
   scene.beginIntroSequence();
 });
 

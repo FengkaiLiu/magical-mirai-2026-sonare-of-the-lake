@@ -27,7 +27,6 @@ import { WASDHint } from "./wasd-hint.js";
 import { ReturnCircle } from "./return-circle.js";
 import { UtilityCircle, makeGearObject } from "./utility-circle.js";
 import { preloadGLTF } from "./asset-cache.js";
-import { IS_TOUCH } from "./device.js";
 import { t, getLang, getBoat, onLangChange } from "./i18n.js";
 import { sfxStop, sfxResume } from "./sfx.js";
 
@@ -523,9 +522,6 @@ export class GameScene {
   _setupAudioPipeline(pre) {
     try {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      // Proactively resume — browsers may suspend AudioContexts created more
-      // than a second after the last user gesture; unlock now while we're still
-      // on the same frame as the click.
       this.audioContext.resume().catch(() => {});
       this.analyser         = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
@@ -637,9 +633,6 @@ export class GameScene {
    * preloaded player silently failed), nudge the AudioContext and retry
    * requestPlay().  Either way force-hide the overlay so the user is never
    * stuck on a black loading screen.
-   *
-   * On iOS: also set a 3 s timer to show a "Tap to start" overlay so the
-   * user can retry requestPlay() inside a fresh gesture context.
    */
   _setupPlaybackFallback() {
     this._playTimeout = setTimeout(() => {
