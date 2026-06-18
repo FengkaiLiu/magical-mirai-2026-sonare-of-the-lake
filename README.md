@@ -56,6 +56,7 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 | [Troika Three Text](https://github.com/protectwise/troika) | Crisp SDF text rendering |
 | [GSAP](https://gsap.com/) | UI / camera tweens |
 | [Vite](https://vitejs.dev/) | Build & dev server |
+| [Draco](https://github.com/google/draco) (bundled decoder) | 3D mesh decompression (terrain.glb) |
 | [ClaudeCode](https://claude.com/product/claude-code) | Vibe-Coding |
 
 ## Project Structure
@@ -97,13 +98,20 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 
 ## Development
 
+### Running the project
+
 ```bash
 npm install            # Install all dependencies
 npm run dev            # Start Vite dev server (auto-opens browser)
 npm run build          # Production build to ./dist
 npm run preview        # Preview built bundle locally
+```
+
+### Asset pipeline (only needed after re-exporting source assets)
+
+```bash
 npm run compress-terrain # Re-Draco-compress public/models/terrain.glb after re-export
-npm run subset-fonts   # Re-subset KiwiMaru-*.full.ttf → KiwiMaru-*.ttf
+npm run subset-fonts     # Re-subset KiwiMaru-*.full.ttf → KiwiMaru-*.ttf
 ```
 
 ## Asset Provenance
@@ -127,7 +135,7 @@ explicit allowance).
 | `public/models/littleshipKAITO.glb` | Cube-chibi KAITO on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
 | `public/models/littleshipMEIKO.glb` | Cube-chibi MEIKO on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
 | `public/models/musicnote.glb` | Floating musical-note pickup | Fengkai Liu | Blender |
-| `public/models/planks.glb` | Floating wooden plank lyric carriers | Fengkai Liu | Blender |
+| `public/models/planks.glb` | Floating wooden plank | Fengkai Liu | Blender |
 
 All six Piapro Characters (Miku, Rin, Len, Luka, MEIKO, KAITO) are used in
 accordance with the [Piapro Character License](https://piapro.net/intl/en_for_creators.html).
