@@ -11,7 +11,7 @@
 import * as THREE from "three";
 import { Engine } from "./engine.js";
 import { GameScene } from "./game-scene.js";
-import { BOATS, BOAT_COLORS, getLang, setLang, setBoatId, getBoatId, onLangChange, t } from "./i18n.js";
+import { BOATS, BOAT_COLORS, getLang, setLang, setBoatId, getBoatId, onLangChange, t, getVolume, setVolume } from "./i18n.js";
 import { preloadAll } from "./asset-cache.js";
 
 const engine = new Engine(document.getElementById("app"));
@@ -161,17 +161,33 @@ function applyTranslations() {
   if (boatClose)    boatClose.textContent    = t("closeBtn");
   if (settingClose) settingClose.textContent = t("closeBtn");
 
+  // HUD popovers
+  const hudBoatTitle    = document.getElementById("hud-boat-title");
+  const hudSettingTitle = document.getElementById("hud-setting-title");
+  const hudLangLabel    = document.getElementById("hud-lang-label");
+  const hudVolLabel     = document.getElementById("hud-volume-label");
+  const hudBoatBtn      = document.getElementById("hud-boat-btn");
+  const hudSettingBtn   = document.getElementById("hud-setting-btn");
+  if (hudBoatTitle)    hudBoatTitle.textContent    = t("boatBtn");
+  if (hudSettingTitle) hudSettingTitle.textContent = t("settingTitle");
+  if (hudLangLabel)    hudLangLabel.textContent    = t("langLabel");
+  if (hudVolLabel)     hudVolLabel.textContent     = t("volumeLabel");
+  if (hudBoatBtn)      hudBoatBtn.title            = t("boatBtn");
+  if (hudSettingBtn)   hudSettingBtn.title         = t("settingTitle");
+
   // Static game UI (in-scene elements)
   const selectHint  = document.getElementById("select-hint");
   const overlayP    = document.querySelector("#overlay p");
   if (selectHint) selectHint.textContent = t("selectHint");
   if (overlayP)   overlayP.textContent   = t("overlayText");
 
-  // Language toggle button active state
+  // Language toggle button active state (both intro modal + HUD popover)
   document.getElementById("lang-ja-btn")?.classList.toggle("active", lang === "ja");
   document.getElementById("lang-en-btn")?.classList.toggle("active", lang === "en");
+  document.getElementById("hud-lang-ja-btn")?.classList.toggle("active", lang === "ja");
+  document.getElementById("hud-lang-en-btn")?.classList.toggle("active", lang === "en");
 
-  // Boat card names
+  // Boat card names — covers both grids
   document.querySelectorAll(".boat-card").forEach(card => {
     const boat = BOATS.find(b => b.id === card.dataset.boatId);
     if (boat) card.querySelector(".boat-card-name").textContent = lang === "ja" ? boat.ja : boat.en;
@@ -180,8 +196,8 @@ function applyTranslations() {
 
 // ── Boat modal ────────────────────────────────────────────────────────────────
 
-function buildBoatGrid() {
-  const grid = document.getElementById("boat-grid");
+function buildBoatGrid(gridId = "boat-grid") {
+  const grid = document.getElementById(gridId);
   if (!grid) return;
   grid.innerHTML = "";
   const lang = getLang();
@@ -205,8 +221,10 @@ function buildBoatGrid() {
       setBoatId(boat.id);
       scene.boat.swapModel(boat);
       scene.updateBoatCircleModel(boat);
-      grid.querySelectorAll(".boat-card").forEach(c => c.classList.remove("selected"));
-      card.classList.add("selected");
+      // Sync selected highlight across both boat grids.
+      document.querySelectorAll(".boat-card").forEach(c => {
+        c.classList.toggle("selected", c.dataset.boatId === boat.id);
+      });
     });
     grid.appendChild(card);
   });
@@ -220,7 +238,7 @@ function closeModal(id) {
 }
 
 boatBtn?.addEventListener("click", () => {
-  buildBoatGrid();
+  buildBoatGrid("boat-grid");
   applyTranslations();
   openModal("boat-modal");
 });
@@ -306,7 +324,7 @@ scene.onReturnToMenu = showIntroScreen;
 
 // Open boat-select and settings modals from in-game utility circles
 scene.onOpenBoatModal = () => {
-  buildBoatGrid();
+  buildBoatGrid("boat-grid");
   applyTranslations();
   openModal("boat-modal");
 };
@@ -322,5 +340,100 @@ startBtn?.addEventListener("click", () => {
 });
 
 document.getElementById("pause-btn")?.addEventListener("click", () => scene.togglePause());
+
+// ── HUD popovers (non-modal boat + setting bubbles) ───────────────────────────
+//
+// Anchored under the HUD button row.  Opening one closes the other so they
+// never overlap.  Clicks outside any popover or its trigger close everything;
+// gameplay underneath stays interactive (no backdrop, no input lock).
+//
+// Cross-browser: uses standard DOM APIs only — classList toggle, getElementById,
+// addEventListener — verified on Chrome / Edge / Firefox / Safari (mac).
+
+const hudBoatPopover    = document.getElementById("hud-boat-popover");
+const hudSettingPopover = document.getElementById("hud-setting-popover");
+const hudBoatBtn        = document.getElementById("hud-boat-btn");
+const hudSettingBtn     = document.getElementById("hud-setting-btn");
+
+function setPopoverOpen(popoverEl, triggerEl, open) {
+  if (!popoverEl) return;
+  popoverEl.classList.toggle("visible", open);
+  popoverEl.setAttribute("aria-hidden", open ? "false" : "true");
+  triggerEl?.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeAllHudPopovers() {
+  setPopoverOpen(hudBoatPopover,    hudBoatBtn,    false);
+  setPopoverOpen(hudSettingPopover, hudSettingBtn, false);
+}
+
+function toggleHudPopover(which) {
+  const isBoat = which === "boat";
+  const target = isBoat ? hudBoatPopover : hudSettingPopover;
+  const trigger = isBoat ? hudBoatBtn    : hudSettingBtn;
+  const other   = isBoat ? hudSettingPopover : hudBoatPopover;
+  const otherT  = isBoat ? hudSettingBtn  : hudBoatBtn;
+  const willOpen = !target.classList.contains("visible");
+  setPopoverOpen(other,  otherT,  false);
+  setPopoverOpen(target, trigger, willOpen);
+  if (willOpen) {
+    if (isBoat) buildBoatGrid("hud-boat-grid");
+    applyTranslations();
+    syncVolumeUI();
+  }
+}
+
+hudBoatBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleHudPopover("boat");
+});
+hudSettingBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toggleHudPopover("setting");
+});
+
+// Clicking inside a popover should not close it.
+hudBoatPopover?.addEventListener("click",    (e) => e.stopPropagation());
+hudSettingPopover?.addEventListener("click", (e) => e.stopPropagation());
+
+// Click anywhere outside → close all.  Use capture phase so we close even if
+// the underlying canvas/3D system stops propagation later.
+document.addEventListener("pointerdown", (e) => {
+  if (!hudBoatPopover?.classList.contains("visible") &&
+      !hudSettingPopover?.classList.contains("visible")) return;
+  const t = e.target;
+  if (hudBoatPopover?.contains(t) || hudSettingPopover?.contains(t)) return;
+  if (t === hudBoatBtn || t === hudSettingBtn) return;
+  closeAllHudPopovers();
+});
+
+// Esc closes popovers (matches OS convention; non-blocking to gameplay).
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeAllHudPopovers();
+});
+
+// HUD language toggle — same store as the intro modal, just different buttons.
+document.getElementById("hud-lang-ja-btn")?.addEventListener("click", () => setLang("ja"));
+document.getElementById("hud-lang-en-btn")?.addEventListener("click", () => setLang("en"));
+
+// HUD volume slider
+const volSlider = document.getElementById("hud-volume-slider");
+const volValue  = document.getElementById("hud-volume-value");
+
+function syncVolumeUI() {
+  const pct = Math.round(getVolume() * 100);
+  if (volSlider && document.activeElement !== volSlider) volSlider.value = String(pct);
+  if (volValue) volValue.textContent = String(pct);
+}
+
+volSlider?.addEventListener("input", () => {
+  const pct = parseInt(volSlider.value, 10);
+  setVolume(pct / 100);
+  if (volValue) volValue.textContent = String(pct);
+});
+// Drop focus on release so arrow keys / WASD return to gameplay cleanly.
+volSlider?.addEventListener("change", () => volSlider.blur());
+
+syncVolumeUI();
 
 engine.start();

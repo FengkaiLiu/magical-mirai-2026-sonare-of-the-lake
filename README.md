@@ -144,8 +144,18 @@ keeping coverage for all designated-song lyrics.
 ### Audio
 
 Song audio is streamed at runtime from the official Piapro URLs published with
-each designated song; no audio files are bundled in this repository. No custom
-sound effects are added on top of the music.
+each designated song; no song audio files are bundled in this repository.
+
+#### Sound Effects
+
+Sound effects bundled in `public/sfx/` are royalty-free assets sourced from
+[Pixabay](https://pixabay.com/sound-effects/) under the
+[Pixabay Content License](https://pixabay.com/service/license-summary/).
+None are AI-generated.
+
+| File | Description | Source |
+|------|-------------|--------|
+| _(none yet — add rows as SFX are integrated)_ | | |
 
 ## Notes for Reviewers
 

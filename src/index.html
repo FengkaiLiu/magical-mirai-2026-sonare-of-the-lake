@@ -80,11 +80,37 @@
   <div id="hud">
     <div class="hud-btns">
       <button id="pause-btn">⏸</button>
+      <button id="hud-boat-btn" class="hud-icon-btn" aria-haspopup="true" aria-expanded="false" title="Boat">⛵</button>
+      <button id="hud-setting-btn" class="hud-icon-btn" aria-haspopup="true" aria-expanded="false" title="Settings">⚙</button>
       <button id="fullscreen-btn" title="Fullscreen">⛶</button>
     </div>
     <span id="time">0:00 / 0:00</span>
     <span id="song-info"></span>
     <span id="controls-hint">W A S D to sail</span>
+  </div>
+
+  <!-- HUD popovers — non-modal floating panels anchored under the HUD buttons -->
+  <div id="hud-boat-popover" class="hud-popover" role="dialog" aria-hidden="true">
+    <div class="hud-popover-arrow"></div>
+    <h3 class="hud-popover-title" id="hud-boat-title">ボート</h3>
+    <div id="hud-boat-grid" class="hud-boat-grid"></div>
+  </div>
+
+  <div id="hud-setting-popover" class="hud-popover" role="dialog" aria-hidden="true">
+    <div class="hud-popover-arrow"></div>
+    <h3 class="hud-popover-title" id="hud-setting-title">設定</h3>
+    <div class="setting-row">
+      <span id="hud-lang-label">言語</span>
+      <div class="lang-toggle">
+        <button id="hud-lang-ja-btn" class="lang-btn">日本語</button>
+        <button id="hud-lang-en-btn" class="lang-btn">English</button>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span id="hud-volume-label">音量</span>
+      <input id="hud-volume-slider" type="range" min="0" max="100" step="1" value="100" />
+      <span id="hud-volume-value">100</span>
+    </div>
   </div>
 
   <script type="module" src="./main.js"></script>

@@ -34,6 +34,7 @@ const STRINGS = {
     boatModalTitle: "ボート選択",
     settingTitle:   "設定",
     langLabel:      "言語",
+    volumeLabel:    "音量",
     closeBtn:       "閉じる",
     selectHint:     "曲サークルへ進んでスタート！",
     controlsHint:   "W A S D で航行",
@@ -52,6 +53,7 @@ const STRINGS = {
     boatModalTitle: "Select Boat",
     settingTitle:   "Settings",
     langLabel:      "Language",
+    volumeLabel:    "Volume",
     closeBtn:       "Close",
     selectHint:     "Sail into a song to begin",
     controlsHint:   "W A S D to sail",
@@ -65,13 +67,20 @@ const STRINGS = {
 
 let _lang   = localStorage.getItem("sotl_lang")  || "en";
 let _boatId = localStorage.getItem("sotl_boat") || "miku";
+
+// Volume: persisted 0..1 master gain applied to all <audio> elements.
+const _storedVol = parseFloat(localStorage.getItem("sotl_volume"));
+let _volume = Number.isFinite(_storedVol) ? Math.min(1, Math.max(0, _storedVol)) : 1;
+
 // Sync HTML lang attribute immediately so CSS [lang="ja"] selectors work on reload
 document.documentElement.lang = _lang === "ja" ? "ja" : "en";
-const _listeners = new Set();
+const _listeners    = new Set();
+const _volListeners = new Set();
 
 export function getLang()   { return _lang; }
 export function getBoatId() { return _boatId; }
 export function getBoat()   { return BOATS.find(b => b.id === _boatId) ?? BOATS[0]; }
+export function getVolume() { return _volume; }
 
 export function setLang(l) {
   _lang = l;
@@ -85,9 +94,20 @@ export function setBoatId(id) {
   localStorage.setItem("sotl_boat", id);
 }
 
+export function setVolume(v) {
+  _volume = Math.min(1, Math.max(0, Number(v) || 0));
+  localStorage.setItem("sotl_volume", String(_volume));
+  for (const fn of _volListeners) fn(_volume);
+}
+
 export function onLangChange(fn) {
   _listeners.add(fn);
   return () => _listeners.delete(fn);
+}
+
+export function onVolumeChange(fn) {
+  _volListeners.add(fn);
+  return () => _volListeners.delete(fn);
 }
 
 export function t(key) {

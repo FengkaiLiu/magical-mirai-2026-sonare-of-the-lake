@@ -39,9 +39,13 @@ export class Environment {
     scene.add(this.bounceLight);
 
     // === Sky dome ===
-    const skyGeo = new THREE.SphereGeometry(150, 32, 16);
+    // Sky is rendered first and skips depth writes so it never occludes distant
+    // terrain (mountains) that may extend beyond the dome's radius.
+    const skyGeo = new THREE.SphereGeometry(900, 32, 16);
     this.skyMat = new THREE.ShaderMaterial({
       side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: false,
       uniforms: {
         uTopColor:     { value: new THREE.Color(0x1a7ad4) },
         uBottomColor:  { value: new THREE.Color(0xb8daf0) },
@@ -74,6 +78,8 @@ export class Environment {
       `,
     });
     this.skyMesh = new THREE.Mesh(skyGeo, this.skyMat);
+    this.skyMesh.renderOrder = -1;
+    this.skyMesh.frustumCulled = false;
     scene.add(this.skyMesh);
     this._sceneObjects.push(this.skyMesh);
 

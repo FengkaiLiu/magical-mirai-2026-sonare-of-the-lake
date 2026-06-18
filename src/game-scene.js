@@ -28,7 +28,7 @@ import { ReturnCircle } from "./return-circle.js";
 import { UtilityCircle, makeGearObject } from "./utility-circle.js";
 import { preloadGLTF } from "./asset-cache.js";
 import { IS_TOUCH } from "./device.js";
-import { t, getLang, getBoat } from "./i18n.js";
+import { t, getLang, getBoat, getVolume, onVolumeChange } from "./i18n.js";
 
 // ── GameScene ─────────────────────────────────────────────────────────────────
 
@@ -128,8 +128,19 @@ export class GameScene {
       return entry;
     });
 
+    // Master volume: applied directly to each preloaded <audio> element since
+    // they pipe through the AudioContext as MediaElementSources — setting
+    // .volume on the source HTMLMediaElement scales the entire chain.
+    this._unsubVolume = onVolumeChange((v) => this._applyVolumeToAll(v));
+
     this._updatable = { update: (dt, el) => this._update(dt, el) };
     engine.addUpdatable(this._updatable);
+  }
+
+  _applyVolumeToAll(v) {
+    for (const pre of this._preloadedSongs ?? []) {
+      if (pre.audioEl) pre.audioEl.volume = v;
+    }
   }
 
   // ── Song preloading ────────────────────────────────────────────────────────
@@ -145,6 +156,7 @@ export class GameScene {
     // which is what we want for a select-then-play flow where audio readiness
     // is the dominant load-time bottleneck.
     audioEl.preload = "auto";
+    audioEl.volume = getVolume();
     entry.audioEl = audioEl; // set synchronously so _activatePlay can use it immediately
 
     entry.player = new Player({ app: { token: "xTTinPuYYoHYLhnk" }, mediaElement: audioEl });
@@ -809,6 +821,8 @@ export class GameScene {
     }
 
     if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
+
+    if (this._unsubVolume) { this._unsubVolume(); this._unsubVolume = null; }
 
     this._lyricGate?.dispose();
     this._lyricGate = null;
