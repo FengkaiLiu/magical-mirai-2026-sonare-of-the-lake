@@ -265,9 +265,21 @@ export class UtilityCircle {
 
     // ── Text points — pre-sampled one frame after construction; re-sampled on lang change ──
     this._textPts = null;
-    const _resample = () => { if (!this._disposed) this._textPts = sampleText(t(textKey), n); };
+    const _resample = () => {
+      if (this._disposed) return;
+      this._textPts = sampleText(t(textKey), n);
+      // If the text is currently formed (or forming), re-assign targets so the
+      // particles smoothly morph to the new language without requiring the
+      // player to leave and re-enter the circle.
+      if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+        this._assignTextTargets();
+        if (this._state === STATE.ACTIVE) {
+          this._state     = STATE.ACTIVATING;
+          this._stateTime = 0;
+        }
+      }
+    };
     requestAnimationFrame(_resample);
-    onLangChange(() => requestAnimationFrame(_resample));
 
     // ── Screen-space hint ─────────────────────────────────────────────────────
     this._hintEl = document.createElement("div");
@@ -276,7 +288,10 @@ export class UtilityCircle {
     this._hintEl.style.display = "none";
     document.body.appendChild(this._hintEl);
     this._hintWorldPos = new THREE.Vector3();
-    this._offLang = onLangChange(() => { if (this._hintEl) this._hintEl.innerHTML = t("enterStart"); });
+    this._offLang = onLangChange(() => {
+      if (this._hintEl) this._hintEl.innerHTML = t("enterStart");
+      requestAnimationFrame(_resample);
+    });
 
     // ── Floating 3D center object ─────────────────────────────────────────────
     this._centerPivot = new THREE.Object3D();

@@ -13,7 +13,7 @@
 
 import * as THREE from "three";
 import { waveHeight } from "./boat.js";
-import { t } from "./i18n.js";
+import { t, onLangChange } from "./i18n.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -247,8 +247,23 @@ export class MenuReturnCircle {
 
     // ── Text points — deferred one frame to avoid constructor jank ────────────
     this._textPts = null;
-    requestAnimationFrame(() => {
-      if (!this._disposed) this._textPts = sampleText(t("menuReturn"), n);
+    const _resample = () => {
+      if (this._disposed) return;
+      this._textPts = sampleText(t("menuReturn"), n);
+      // If the boat is already inside the ring, the _targets array still encodes
+      // the previous language's shape — refresh and morph so the change is live.
+      if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+        this._assignTextTargets();
+        if (this._state === STATE.ACTIVE) {
+          this._state     = STATE.ACTIVATING;
+          this._stateTime = 0;
+        }
+      }
+    };
+    requestAnimationFrame(_resample);
+    this._offLang = onLangChange(() => {
+      if (this._hintEl) this._hintEl.innerHTML = t("enterReturn");
+      requestAnimationFrame(_resample);
     });
 
     // ── Guide dots (dotted line from circle toward boat) ──────────────────────
@@ -637,6 +652,7 @@ export class MenuReturnCircle {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    this._offLang?.();
     window.removeEventListener("keydown", this._onKeyDown);
     this._hintEl?.remove();
     this._hintEl = null;

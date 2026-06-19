@@ -216,6 +216,9 @@ export class GameScene {
           this._reportPreloadProgress();
         }
       },
+      // Surface TextAlive failures (bad URL, dropped session, API limit) so
+      // they don't silently strand the player without timer-ready.
+      onError: (e) => console.error("[TextAlive preload]", song.title, e),
     };
     entry.player.addListener(entry.preloadListener);
   }
@@ -409,9 +412,10 @@ export class GameScene {
   _activatePlay(songIndex) {
     this._state = "play";
     sfxStop();
-    this._activeSongIndex   = songIndex;
-    this._endingTriggered   = false;
-    this._lastPhraseForGate = null;
+    this._activeSongIndex        = songIndex;
+    this._endingTriggered        = false;
+    this._lastPhraseForGate      = null;
+    this._playerRebuildAttempted = false;
     this._lyricGate?.dispose();
     this._lyricGate = null;
     const song = SONGS[songIndex];
@@ -461,15 +465,21 @@ export class GameScene {
     // Stagger delay hadn't fired yet — kick off preload now so pre.audioEl exists below.
     if (!pre.player) this._startPreload(song, pre);
 
-    // Preload looks dead (no timer, no video) — discard and rebuild the player.
-    if (pre.player && !pre.timerReady && !pre.video) {
-      console.warn("[GameScene] Preload appears stalled — restarting player for:", song.title);
-      pre.player.dispose();
-      pre.player     = null;
-      pre.audioEl    = null;
-      pre.timerReady = false;
-      pre.video      = null;
-      pre.managed    = false;
+    // Preload didn't reach timer-ready — rebuild. We used to require both
+    // !timerReady and !video, but a common stall is "video metadata arrived,
+    // audio is still buffering forever" — onTimerReady then never fires and the
+    // player is silently dead. Better to throw away partial progress and start
+    // clean; the user has already chosen to wait via the overlay.
+    if (pre.player && !pre.timerReady) {
+      console.warn("[GameScene] Preload not timer-ready at click — restarting player for:", song.title);
+      try { pre.player.dispose(); } catch {}
+      pre.player        = null;
+      pre.audioEl       = null;
+      pre.timerReady    = false;
+      pre.video         = null;
+      pre.managed       = false;
+      pre._timerCounted = false;
+      // _prewarmCounted intentionally left as-is — see _rebuildAndRetryPlayback.
       this._startPreload(song, pre);
     }
     return pre;
@@ -520,15 +530,36 @@ export class GameScene {
   }
 
   _setupAudioPipeline(pre) {
+    // createMediaElementSource can only wrap a given <audio> element ONCE for its
+    // lifetime, even after the AudioContext that created it is closed. So we
+    // cache the context + analyser + source on the preload entry the first time
+    // and reuse them on every replay — _resetToSelect suspends instead of closing.
     try {
-      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      this.audioContext.resume().catch(() => {});
-      this.analyser         = this.audioContext.createAnalyser();
-      this.analyser.fftSize = 256;
-      this.audioData        = new Uint8Array(this.analyser.frequencyBinCount);
-      const source = this.audioContext.createMediaElementSource(pre.audioEl);
-      source.connect(this.analyser);
-      this.analyser.connect(this.audioContext.destination);
+      if (pre.mediaSource && pre.audioContext) {
+        this.audioContext = pre.audioContext;
+        this.analyser     = pre.analyser;
+        this.audioData    = pre.audioData;
+        this.audioContext.resume().catch(() => {});
+        this.env.setAudioAnalyser(this.analyser, this.audioData);
+        return;
+      }
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      ctx.resume().catch(() => {});
+      const analyser  = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      const audioData = new Uint8Array(analyser.frequencyBinCount);
+      const source    = ctx.createMediaElementSource(pre.audioEl);
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      pre.audioContext = ctx;
+      pre.analyser     = analyser;
+      pre.audioData    = audioData;
+      pre.mediaSource  = source;
+
+      this.audioContext = ctx;
+      this.analyser     = analyser;
+      this.audioData    = audioData;
       this.env.setAudioAnalyser(this.analyser, this.audioData);
     } catch (e) {
       console.warn("AudioContext setup failed — audio reactivity disabled.", e);
@@ -553,7 +584,15 @@ export class GameScene {
       this.player.removeListener?.(pre.preloadListener);
       pre.preloadListener = null;
     }
-    this.player.addListener({
+    // If a previous play session already attached a playback listener (we don't
+    // dispose pre.player on return-to-select), detach it first — otherwise the
+    // new one stacks and onTimeUpdate / addPhrase fire N× per tick on every
+    // replay of the same song.
+    if (pre.playbackListener) {
+      this.player.removeListener?.(pre.playbackListener);
+      pre.playbackListener = null;
+    }
+    pre.playbackListener = {
       // Fires only if video metadata arrived after _activatePlay started.
       onVideoReady: (v) => {
         if (!v || pre.video) return;
@@ -582,7 +621,9 @@ export class GameScene {
         const pauseBtn = document.getElementById("pause-btn");
         if (pauseBtn) pauseBtn.textContent = "▶";
       },
-    });
+      onError: (e) => console.error("[TextAlive playback]", song.title, e),
+    };
+    this.player.addListener(pre.playbackListener);
   }
 
   _handleTimeUpdate(pos, song) {
@@ -629,23 +670,85 @@ export class GameScene {
   }
 
   /**
-   * If onPlay hasn't fired within 8 s (e.g. AudioContext stayed suspended,
-   * preloaded player silently failed), nudge the AudioContext and retry
-   * requestPlay().  Either way force-hide the overlay so the user is never
-   * stuck on a black loading screen.
+   * If onPlay hasn't fired within 8 s, recover based on what's actually wrong:
+   *   • Timer never became ready  → rebuild the player from scratch (the most
+   *     common stall: audio element silently failed to buffer). One rebuild
+   *     attempt only, gated by _playerRebuildAttempted, then a second watchdog
+   *     covers the rebuild.
+   *   • Timer ready but onPlay missed → AudioContext probably suspended; resume
+   *     it and retry requestPlay. Then drop the overlay.
    */
   _setupPlaybackFallback() {
     this._playTimeout = setTimeout(() => {
-      if (this._disposed || this._state !== "play") return;
-      if (!this._playbackStarted) {
-        console.warn("[GameScene] Playback start timeout — forcing AudioContext resume");
-        this.audioContext?.resume().catch(() => {});
-        if (!this._managed) {
-          try { this.player?.requestPlay(); } catch {}
-        }
-        document.getElementById("overlay")?.classList.add("hidden");
+      if (this._disposed || this._state !== "play" || this._playbackStarted) return;
+
+      const pre = this._preloadedSongs[this._activeSongIndex];
+      this.audioContext?.resume().catch(() => {});
+
+      if (!pre?.timerReady && !this._playerRebuildAttempted) {
+        console.warn("[GameScene] Player never reached timer-ready — rebuilding");
+        this._playerRebuildAttempted = true;
+        this._rebuildAndRetryPlayback();
+        // Cover the rebuild with a fresh watchdog. Overlay stays up until onPlay.
+        this._setupPlaybackFallback();
+        return;
       }
+
+      // Timer is ready (or we already retried once) — nudge play and give up
+      // hiding behind the overlay so the user isn't stuck.
+      if (!this._managed) {
+        try { this.player?.requestPlay(); } catch {}
+      }
+      document.getElementById("overlay")?.classList.add("hidden");
     }, 8000);
+  }
+
+  /**
+   * Tear down the dead player + audio pipeline for the active song and start a
+   * fresh preload. The new onTimerReady (attached via _attachPlaybackListeners)
+   * will kick off playback automatically — we don't call requestPlay here
+   * because timer is by definition not ready yet.
+   */
+  _rebuildAndRetryPlayback() {
+    const songIndex = this._activeSongIndex;
+    if (songIndex < 0) return;
+    const song = SONGS[songIndex];
+    const pre  = this._preloadedSongs[songIndex];
+    if (!pre) return;
+
+    // The cached MediaElementSource is bound to the dead audioEl via
+    // pre.mediaSource; close the cached AudioContext + clear all audio fields on
+    // pre so _setupAudioPipeline rebuilds a fresh pipeline against the new audioEl.
+    try { pre.audioContext?.close(); } catch {}
+    pre.audioContext = null;
+    pre.analyser     = null;
+    pre.audioData    = null;
+    pre.mediaSource  = null;
+    this.audioContext = null;
+    this.analyser     = null;
+    this.audioData    = null;
+    this.env.setAudioAnalyser(null, null);
+
+    try { pre.player?.dispose(); } catch {}
+    pre.player           = null;
+    pre.audioEl          = null;
+    pre.video            = null;
+    pre.timerReady       = false;
+    pre.managed          = false;
+    pre._timerCounted    = false;
+    // Keep _prewarmCounted as-is: prewarm fired on the original onVideoReady
+    // and already incremented the loading-bar counter. Resetting would let the
+    // rebuild's onVideoReady increment a second time and push it past 100%.
+    pre.preloadListener  = null;
+    pre.playbackListener = null;
+
+    this._startPreload(song, pre);
+
+    this.player           = pre.player;
+    this._managed         = pre.managed;
+    this._playbackStarted = false;
+    this._setupAudioPipeline(pre);
+    this._attachPlaybackListeners(song, pre);
   }
 
   // ── Play helpers ───────────────────────────────────────────────────────────
@@ -714,8 +817,15 @@ export class GameScene {
     this.lyrics = null;
 
     try { this.player?.requestPause(); } catch {}
-    this.audioContext?.close();
+    // Suspend (don't close) the AudioContext: the MediaElementSource is bound to
+    // it for the lifetime of pre.audioEl, and closing would force us to wrap the
+    // element again on replay — which throws. _setupAudioPipeline resumes it next
+    // time the same song is selected.
+    this.audioContext?.suspend().catch(() => {});
     this.audioContext = null;
+    this.analyser     = null;
+    this.audioData    = null;
+    this.env.setAudioAnalyser(null, null);
 
     if (this._onVisibilityChange) {
       document.removeEventListener("visibilitychange", this._onVisibilityChange);

@@ -18,7 +18,7 @@
 
 - **Haolin Wang** — Modeled the original cube-chibi Hatsune Miku character mesh
   used in `miku-boat.glb` (contributed with explicit permission for use in this
-  contest entry). The remaining five character boats (`littleshipRin/Ren/luka/KAITO/MEIKO.glb`)
+  contest entry). The remaining five character boats (`littleshipRin/Len/luka/KAITO/MEIKO.glb`)
   are substantially modified derivative works in which Fengkai Liu re-modeled
   the chibi character on top of Haolin's base mesh template.
 
@@ -31,7 +31,7 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 | こたえて | Answer Me | imie |
 | アフター・ザ・カーテン | After the Curtain | Rulmry |
 | シャッターチャンス | Shutter Chance | 夜未アガリ |
-| 世界最後の音楽隊 | World's Last Orchestra | 夏山よつぎ × ど〜ぱみん |
+| 世界最後の音楽隊 | World's Last Orchestra | 夏山よつぎ×ど〜ぱみん |
 | トリツクロジー | Trickology | 鶴三 |
 | TAKEOVER | TAKEOVER | Twinfield |
 
@@ -129,7 +129,7 @@ explicit allowance).
 | `public/models/terrain.glb` | Low-poly lake island, corals, trees, rocks | Fengkai Liu | Blender |
 | `public/models/miku-boat.glb` | Cube-chibi Miku riding a small boat | Haolin Wang (Miku chibi mesh, contributed with permission); Fengkai Liu (boat hull, scene assembly, export) | Blender |
 | `public/models/littleshipRin.glb` | Cube-chibi Rin on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
-| `public/models/littleshipRen.glb` | Cube-chibi Len on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
+| `public/models/littleshipLen.glb` | Cube-chibi Len on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
 | `public/models/littleshipluka.glb` | Cube-chibi Luka on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
 | `public/models/littleshipKAITO.glb` | Cube-chibi KAITO on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
 | `public/models/littleshipMEIKO.glb` | Cube-chibi MEIKO on boat | Fengkai Liu (derivative work re-modeled from Haolin Wang's base mesh, with permission) | Blender |
@@ -174,7 +174,7 @@ None are AI-generated.
   used only for code-writing assistance (which the rules permit).
 - **No obfuscation.** All source is plain ES modules, written for readability
   with comments documenting non-obvious decisions.
-- **TextAlive token.** The token `xTTinPuYYoHYLhnk` in `src/game-scene.js:135`
+- **TextAlive token.** The token `xTTinPuYYoHYLhnk` in `src/game-scene.js:168`
   is a **public client-side application token** issued for this app per the
   [TextAlive App API documentation](https://developer.textalive.jp/). It
   identifies the app to the API and carries no privileged scope, so committing

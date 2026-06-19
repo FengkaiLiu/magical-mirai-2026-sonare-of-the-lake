@@ -9,7 +9,7 @@
 export const BOATS = [
   { id: "miku",  ja: "初音ミク",  en: "Miku",  glb: "models/miku-boat.glb"  },
   { id: "rin",   ja: "鏡音リン",  en: "Rin",   glb: "models/littleshipRin.glb",   fallback: "models/miku-boat.glb" },
-  { id: "len",   ja: "鏡音レン",  en: "Len",   glb: "models/littleshipRen.glb",   fallback: "models/miku-boat.glb" },
+  { id: "len",   ja: "鏡音レン",  en: "Len",   glb: "models/littleshipLen.glb",   fallback: "models/miku-boat.glb" },
   { id: "luka",  ja: "巡音ルカ",  en: "Luka",  glb: "models/littleshipluka.glb",  fallback: "models/miku-boat.glb" },
   { id: "kaito", ja: "KAITO",     en: "KAITO", glb: "models/littleshipKAITO.glb", fallback: "models/miku-boat.glb" },
   { id: "meiko", ja: "MEIKO",     en: "MEIKO", glb: "models/littleshipMEIKO.glb", fallback: "models/miku-boat.glb" },

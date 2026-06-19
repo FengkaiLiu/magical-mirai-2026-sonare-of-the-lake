@@ -252,6 +252,17 @@ class SongCircle {
       const title = lang === "en" ? this._songTitleEn : this._songTitle;
       this._textPts     = sampleTextPoints(title, this._n);
       this._textPtsLang = lang;
+      // If the boat is inside the ring while language switches, the existing _targets
+      // still encode the old title's glyphs — re-assign and drop ACTIVE→ACTIVATING so
+      // the particles smoothly morph into the new title instead of waiting for a
+      // re-entry to refresh.
+      if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+        this._assignTextTargets();
+        if (this._state === STATE.ACTIVE) {
+          this._state     = STATE.ACTIVATING;
+          this._stateTime = 0;
+        }
+      }
     };
     let _delay = index;
     const _staggeredSample = () => { if (_delay-- > 0) { requestAnimationFrame(_staggeredSample); return; } _resample(); };

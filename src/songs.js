@@ -13,7 +13,7 @@ export const SONGS = [
     options:{video:{beatId:4827295,chordId:2963756,repetitiveSegmentId:3086263,lyricId:126542,lyricDiffId:28628}},
     theme:{sky:0x5878b8, skyHorizon:0xc8b8e0, particle:0xd0b8ff, water:0x3878a0, deep:0x1e4868},
     chorus:[[52000, 86000], [158000, 189000]], skyConvergenceTime: 1.0 },
-  { title:"世界最後の音楽隊", titleEn:"World's Last Orchestra", artist:"夏山よつぎ×ど～ぱみん", url:"https://piapro.jp/t/B3yJ/20251215061727",
+  { title:"世界最後の音楽隊", titleEn:"World's Last Orchestra", artist:"夏山よつぎ×ど〜ぱみん", url:"https://piapro.jp/t/B3yJ/20251215061727",
     options:{video:{beatId:4827296,chordId:2963757,repetitiveSegmentId:3086264,lyricId:126594,lyricDiffId:28629}},
     theme:{sky:0x3a8a5a, skyHorizon:0xa8d8b8, particle:0x70d898, water:0x2a9878, deep:0x185848},
     chorus:[[67000, 96000], [185000, 214000]], particleCount: 2000 },
