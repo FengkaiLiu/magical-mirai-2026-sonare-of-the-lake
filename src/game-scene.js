@@ -65,9 +65,11 @@ export class GameScene {
 
     document.getElementById("overlay")?.classList.add("hidden");
 
-    // One-time seek handler on the progress bar (safe to add once — checks this.player at call time)
+    // One-time seek handler on the progress bar (safe to add once — checks
+    // state at call time). The state guard prevents a stray click during
+    // ending/select from jumping playback on a player that's no longer current.
     document.getElementById("song-progress-wrap")?.addEventListener("click", (e) => {
-      if (!this.player?.video) return;
+      if (this._state !== "play" || !this.player?.video) return;
       const dur = this.player.video.duration;
       if (!dur) return;
       const frac = e.clientX / window.innerWidth;
@@ -652,9 +654,12 @@ export class GameScene {
       }
     }
 
-    // Detect song end: trigger ending sequence ~800 ms before song finishes
+    // Detect song end: trigger ending sequence ~800 ms before song finishes.
+    // The pos > 5000 floor guards against TextAlive sometimes reporting
+    // duration=0 then a tiny value, or against a seek bringing pos into the
+    // end-window during the opening; either would prematurely fire ending.
     if (!this._endingTriggered) {
-      if (dur && pos >= dur - 800) {
+      if (dur && pos > 5000 && pos >= dur - 800) {
         this._endingTriggered = true;
         setTimeout(() => this._beginEnding(), 1200);
       }
@@ -910,7 +915,11 @@ export class GameScene {
         new THREE.Vector3(-20, 0, 4),
         { color: 0xffaa44, textKey: "settingBtn", onActivate: () => this.onOpenSettingsModal?.() },
       );
-      this._settingsCircle.setCenterObject(gear);
+      // owned=true: gear is built locally, so UtilityCircle.dispose() should
+      // release its geometries + material. Boat clones (below + in
+      // updateBoatCircleModel) keep the default owned=false because they share
+      // material refs with the GLTF asset cache.
+      this._settingsCircle.setCenterObject(gear, true);
     }
   }
 

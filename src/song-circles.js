@@ -329,6 +329,11 @@ class SongCircle {
   activate() {
     const s = this._state;
     if (s === STATE.ACTIVE || s === STATE.ACTIVATING || s === STATE.WAITING) return;
+    // Don't interrupt GATHERING — particles are still streaming into orbit
+    // from intro positions; activating now would freeze them mid-flight. The
+    // next frame's proximity check will activate cleanly once gather completes
+    // and the state advances to IDLE.
+    if (s === STATE.GATHERING) return;
     // If interrupted during fade-in (boat already inside on first frame after return),
     // snap alpha to full so particles don't stay invisible in ACTIVATING state.
     if (s === STATE.FADING_IN) {

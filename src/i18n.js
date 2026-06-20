@@ -40,7 +40,7 @@ const STRINGS = {
     overlayText:    "読み込み中...",
     enterStart:     `<kbd>&#9166; Enter</kbd> でスタート`,
     enterReturn:    `<kbd>&#9166; Enter</kbd> で戻る`,
-    returnToTitle:  "タイトルへ戻る",
+    returnToSelect: "曲選択へ戻る",
     menuReturn:     "← タイトル",
   },
   en: {
@@ -58,7 +58,7 @@ const STRINGS = {
     overlayText:    "Loading...",
     enterStart:     `Press <kbd>&#9166; Enter</kbd> to start`,
     enterReturn:    `Press <kbd>&#9166; Enter</kbd> to return`,
-    returnToTitle:  "Return to Title",
+    returnToSelect: "Back to Songs",
     menuReturn:     "← Menu",
   },
 };

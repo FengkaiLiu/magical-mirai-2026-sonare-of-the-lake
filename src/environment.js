@@ -127,7 +127,14 @@ export class Environment {
     }
 
     // === Terrain from GLTF ===
-    this.coralMeshes = []; // { mesh, materials: MeshStandardMaterial[] }
+    // Pulse-state + coral-light fields are initialised BEFORE preloadGLTF so a
+    // cache hit (which can resolve the .then() synchronously on the same tick)
+    // can safely push lights without crashing on undefined.
+    this.smoothedEnergy = 0;
+    this.fastEnergy     = 0;
+    this.coralPulse     = 0;
+    this._coralLights   = [];
+    this.coralMeshes    = []; // { mesh, materials: MeshStandardMaterial[] }
     // Use asset-cache so the parsed GLTF is shared with any future consumer and
     // benefits from THREE.Cache's deduplicated network fetch.  Clone the scene so
     // local mutations (material clone, position shift) don't pollute the cached source.
@@ -206,11 +213,6 @@ export class Environment {
     }));
     scene.add(this.particles);
     this._sceneObjects.push(this.particles);
-
-    this.smoothedEnergy = 0;
-    this.fastEnergy     = 0;
-    this.coralPulse     = 0;
-    this._coralLights   = [];
 
     engine.addUpdatable(this);
   }

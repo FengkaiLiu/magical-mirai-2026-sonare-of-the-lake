@@ -77,8 +77,8 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 │   ├── fish-school.js        # Particle-formation primitive
 │   ├── fish-lyric-system.js  # Verse-mode lyric particle scheduler
 │   ├── song-circles.js       # Six glowing song-selection portals
-│   ├── return-circle.js      # End-of-song "return" ring
-│   ├── menu-return-circle.js # Back-to-title ring
+│   ├── return-circle.js      # End-of-song ring → returns to song select
+│   ├── menu-return-circle.js # Back-to-title ring (currently unused)
 │   ├── wasd-hint.js          # First-time control hint particles
 │   ├── lyric-gate.js         # Generic phrase-detection helper
 │   ├── asset-cache.js        # Singleton GLTFLoader + DRACOLoader

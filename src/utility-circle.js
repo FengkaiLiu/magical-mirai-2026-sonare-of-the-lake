@@ -312,11 +312,37 @@ export class UtilityCircle {
 
   // ── Public API ────────────────────────────────────────────────────────────
 
-  /** Swap the 3D object displayed at the circle centre (boat model, gear, etc.). */
-  setCenterObject(obj) {
-    if (this._centerObject) this._centerPivot.remove(this._centerObject);
-    this._centerObject = obj ?? null;
+  /**
+   * Swap the 3D object displayed at the circle centre.
+   * @param {THREE.Object3D} obj     The new centre object (or null).
+   * @param {boolean}        owned   True if dispose() should release the object's
+   *                                 geometry/materials. Use for self-built meshes
+   *                                 (e.g. makeGearObject). Do NOT pass true for
+   *                                 GLTF clones — those share material refs with
+   *                                 the asset-cache and disposing them would
+   *                                 blank every other instance.
+   */
+  setCenterObject(obj, owned = false) {
+    if (this._centerObject) {
+      this._centerPivot.remove(this._centerObject);
+      if (this._ownsCenterObject) this._disposeCenterObject(this._centerObject);
+    }
+    this._centerObject     = obj ?? null;
+    this._ownsCenterObject = !!obj && !!owned;
     if (obj) this._centerPivot.add(obj);
+  }
+
+  _disposeCenterObject(root) {
+    const geo = new Set(), mat = new Set();
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      if (o.geometry && !geo.has(o.geometry)) { geo.add(o.geometry); o.geometry.dispose(); }
+      // makeGearObject shares one material across every sub-mesh.
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (m && !mat.has(m)) { mat.add(m); m.dispose(); }
+      }
+    });
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
@@ -591,7 +617,10 @@ export class UtilityCircle {
     window.removeEventListener("keydown", this._onKeyDown);
     this._hintEl?.remove();
     this._hintEl = null;
-    if (this._centerObject) this._centerPivot.remove(this._centerObject);
+    if (this._centerObject) {
+      this._centerPivot.remove(this._centerObject);
+      if (this._ownsCenterObject) this._disposeCenterObject(this._centerObject);
+    }
     this.engine.scene.remove(this._centerPivot);
     this.engine.removeUpdatable(this);
     this.engine.scene.remove(this._pts);

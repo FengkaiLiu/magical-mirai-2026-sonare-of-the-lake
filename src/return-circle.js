@@ -275,7 +275,7 @@ export class ReturnCircle {
     // intro screen, so language cannot change while a ReturnCircle is active.
     this._textPts = null;
     requestAnimationFrame(() => {
-      if (!this._disposed) this._textPts = sampleText(t("returnToTitle"), n);
+      if (!this._disposed) this._textPts = sampleText(t("returnToSelect"), n);
     });
 
     // ── Guide dots (dotted line from circle toward boat) ──────────────────────

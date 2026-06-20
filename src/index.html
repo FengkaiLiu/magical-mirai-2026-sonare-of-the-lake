@@ -14,7 +14,10 @@
 
     <!-- Title text -->
     <div id="intro-title">
-      <div class="intro-logo" id="intro-logo">Voyage to Melody</div>
+      <!-- Text content for the elements below is filled in by main.js
+           applyTranslations() to avoid an EN/JA FOUC during the brief window
+           between markup paint and module script execution. -->
+      <div class="intro-logo" id="intro-logo"></div>
 
       <!-- Loading phase -->
       <div id="intro-progress-wrap">
@@ -23,12 +26,12 @@
       </div>
 
       <!-- Ready phase (hidden until load complete) -->
-      <button id="intro-start-btn" disabled>Start</button>
+      <button id="intro-start-btn" disabled></button>
 
       <!-- Secondary buttons — always enabled, shown alongside Start -->
       <div id="intro-secondary-btns">
-        <button id="intro-boat-btn">ボート</button>
-        <button id="intro-setting-btn">設定</button>
+        <button id="intro-boat-btn"></button>
+        <button id="intro-setting-btn"></button>
       </div>
     </div>
   </div>
@@ -36,24 +39,26 @@
   <!-- ── Boat selection modal ─────────────────────────────────────── -->
   <div id="boat-modal" class="intro-modal hidden">
     <div class="intro-modal-panel">
-      <h2 id="boat-modal-title">ボート選択</h2>
+      <h2 id="boat-modal-title"></h2>
       <div id="boat-grid"></div>
-      <button class="intro-modal-close" id="boat-modal-close">閉じる</button>
+      <button class="intro-modal-close" id="boat-modal-close"></button>
     </div>
   </div>
 
   <!-- ── Settings modal ──────────────────────────────────────────── -->
   <div id="setting-modal" class="intro-modal hidden">
     <div class="intro-modal-panel">
-      <h2 id="setting-modal-title">設定</h2>
+      <h2 id="setting-modal-title"></h2>
       <div class="setting-row">
-        <span id="lang-label">言語</span>
+        <span id="lang-label"></span>
         <div id="lang-toggle">
+          <!-- Language buttons intentionally hardcoded — labels always show in
+               their respective native scripts, regardless of the active UI lang. -->
           <button id="lang-ja-btn" class="lang-btn">日本語</button>
           <button id="lang-en-btn" class="lang-btn">English</button>
         </div>
       </div>
-      <button class="intro-modal-close" id="setting-modal-close">閉じる</button>
+      <button class="intro-modal-close" id="setting-modal-close"></button>
     </div>
   </div>
 
@@ -63,12 +68,12 @@
   <!-- State transition fade -->
   <div id="transition-overlay"></div>
 
-  <!-- Song select hint -->
-  <div id="select-hint">Sail into a song to begin</div>
+  <!-- Song select hint (text filled in by applyTranslations) -->
+  <div id="select-hint"></div>
 
-  <!-- Play scene loading overlay -->
+  <!-- Play scene loading overlay (text filled in by applyTranslations) -->
   <div id="overlay">
-    <p>Loading...</p>
+    <p></p>
   </div>
 
   <!-- Song progress bar — top of screen during play -->
@@ -84,21 +89,22 @@
     </div>
     <span id="time">0:00 / 0:00</span>
     <span id="song-info"></span>
-    <span id="controls-hint">W A S D to sail</span>
+    <!-- controls-hint text is set by game-scene._setupHUD on play start. -->
+    <span id="controls-hint"></span>
   </div>
 
   <!-- HUD popovers — non-modal floating panels anchored under the HUD buttons -->
   <div id="hud-boat-popover" class="hud-popover" role="dialog" aria-hidden="true">
     <div class="hud-popover-arrow"></div>
-    <h3 class="hud-popover-title" id="hud-boat-title">ボート</h3>
+    <h3 class="hud-popover-title" id="hud-boat-title"></h3>
     <div id="hud-boat-grid" class="hud-boat-grid"></div>
   </div>
 
   <div id="hud-setting-popover" class="hud-popover" role="dialog" aria-hidden="true">
     <div class="hud-popover-arrow"></div>
-    <h3 class="hud-popover-title" id="hud-setting-title">設定</h3>
+    <h3 class="hud-popover-title" id="hud-setting-title"></h3>
     <div class="setting-row">
-      <span id="hud-lang-label">言語</span>
+      <span id="hud-lang-label"></span>
       <div class="lang-toggle">
         <button id="hud-lang-ja-btn" class="lang-btn">日本語</button>
         <button id="hud-lang-en-btn" class="lang-btn">English</button>
