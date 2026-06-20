@@ -244,32 +244,46 @@ class SongCircle {
     this._textPts     = null;
     this._textPtsLang = null;
 
-    // Pre-sample text staggered by circle index so each one lands in a different
-    // frame and the getImageData readbacks don't all spike on the same frame.
-    const _resample = () => {
-      if (this._disposed) return;
+    // Heavy canvas sample — split out so we can call it eagerly (initial warm-up
+    // + live morph) or skip it entirely (lang change while idle, see below).
+    const _doSample = () => {
       const lang = getLang();
       const title = lang === "en" ? this._songTitleEn : this._songTitle;
       this._textPts     = sampleTextPoints(title, this._n);
       this._textPtsLang = lang;
-      // If the boat is inside the ring while language switches, the existing _targets
-      // still encode the old title's glyphs — re-assign and drop ACTIVE→ACTIVATING so
-      // the particles smoothly morph into the new title instead of waiting for a
-      // re-entry to refresh.
+    };
+    // Pre-sample text staggered by circle index so each one lands in a different
+    // frame and the getImageData readbacks don't all spike on the same frame.
+    let _delay = index;
+    const _staggeredSample = () => {
+      if (this._disposed) return;
+      if (_delay-- > 0) { requestAnimationFrame(_staggeredSample); return; }
+      _doSample();
+    };
+    requestAnimationFrame(_staggeredSample);
+
+    // Re-sample on language switch. Hold the unsubscribe handle so dispose() can
+    // detach it; otherwise return-to-select cycles accumulate dead listeners.
+    //
+    // INP optimisation: with 6 SongCircles + 2 UtilityCircles all listening to the
+    // same setLang() click, doing eager sampleTextPoints on every listener pushed
+    // INP past 200 ms on slower machines. Instead — only sample now if the circle
+    // is currently showing text (so the morph stays live); otherwise just invalidate
+    // the cached sample and let activate() lazy-sample when the boat enters.
+    this._offLang = onLangChange(() => {
+      if (this._textPtsLang === getLang()) return;
       if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+        _doSample();
         this._assignTextTargets();
         if (this._state === STATE.ACTIVE) {
           this._state     = STATE.ACTIVATING;
           this._stateTime = 0;
         }
+      } else {
+        this._textPts     = null;
+        this._textPtsLang = null;
       }
-    };
-    let _delay = index;
-    const _staggeredSample = () => { if (_delay-- > 0) { requestAnimationFrame(_staggeredSample); return; } _resample(); };
-    requestAnimationFrame(_staggeredSample);
-    // Re-sample when language switches. Hold the unsubscribe handle so dispose()
-    // can detach it; otherwise return-to-select cycles accumulate dead listeners.
-    this._offLang = onLangChange(() => { if (this._textPtsLang !== getLang()) requestAnimationFrame(_resample); });
+    });
   }
 
   // Returns { mesh, uniforms, geo, mat } — a glowing ring lying flat in XZ.
@@ -339,6 +353,14 @@ class SongCircle {
     if (s === STATE.FADING_IN) {
       this._alphaMul = 1;
       this._uniforms.uAlphaMul.value = 1;
+    }
+    // Lazy sample: if a recent lang change invalidated _textPts while idle, sample
+    // now so this activation has glyph targets to morph toward.
+    if (!this._textPts || this._textPtsLang !== getLang()) {
+      const lang  = getLang();
+      const title = lang === "en" ? this._songTitleEn : this._songTitle;
+      this._textPts     = sampleTextPoints(title, this._n);
+      this._textPtsLang = lang;
     }
     this._state     = STATE.ACTIVATING;
     this._stateTime = 0;

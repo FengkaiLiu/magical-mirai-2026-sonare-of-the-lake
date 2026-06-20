@@ -16,7 +16,7 @@
 
 import * as THREE from "three";
 import { waveHeight } from "./boat.js";
-import { t, onLangChange } from "./i18n.js";
+import { t, getLang, onLangChange } from "./i18n.js";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -263,23 +263,15 @@ export class UtilityCircle {
     // ── Glow ring ─────────────────────────────────────────────────────────────
     this._ring = this._makeRing(col);
 
-    // ── Text points — pre-sampled one frame after construction; re-sampled on lang change ──
-    this._textPts = null;
-    const _resample = () => {
-      if (this._disposed) return;
-      this._textPts = sampleText(t(textKey), n);
-      // If the text is currently formed (or forming), re-assign targets so the
-      // particles smoothly morph to the new language without requiring the
-      // player to leave and re-enter the circle.
-      if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
-        this._assignTextTargets();
-        if (this._state === STATE.ACTIVE) {
-          this._state     = STATE.ACTIVATING;
-          this._stateTime = 0;
-        }
-      }
+    // ── Text points — pre-sampled one frame after construction; re-sampled lazily on lang change ──
+    this._textKey     = textKey;
+    this._textPts     = null;
+    this._textPtsLang = null;
+    const _doSample = () => {
+      this._textPts     = sampleText(t(textKey), n);
+      this._textPtsLang = getLang();
     };
-    requestAnimationFrame(_resample);
+    requestAnimationFrame(() => { if (!this._disposed) _doSample(); });
 
     // ── Screen-space hint ─────────────────────────────────────────────────────
     this._hintEl = document.createElement("div");
@@ -288,9 +280,23 @@ export class UtilityCircle {
     this._hintEl.style.display = "none";
     document.body.appendChild(this._hintEl);
     this._hintWorldPos = new THREE.Vector3();
+    // INP optimisation: see SongCircle's onLangChange handler — same reasoning.
+    // Sample now only if the text is currently visible (live morph); otherwise
+    // just invalidate and let _update's proximity check lazy-sample on entry.
     this._offLang = onLangChange(() => {
       if (this._hintEl) this._hintEl.innerHTML = t("enterStart");
-      requestAnimationFrame(_resample);
+      if (this._textPtsLang === getLang()) return;
+      if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
+        _doSample();
+        this._assignTextTargets();
+        if (this._state === STATE.ACTIVE) {
+          this._state     = STATE.ACTIVATING;
+          this._stateTime = 0;
+        }
+      } else {
+        this._textPts     = null;
+        this._textPtsLang = null;
+      }
     });
 
     // ── Floating 3D center object ─────────────────────────────────────────────
@@ -582,6 +588,11 @@ export class UtilityCircle {
 
     if (this._state === STATE.IDLE || this._state === STATE.RETURNING) {
       if (dist < CIRCLE_R) {
+        // Lazy sample: lang may have changed while this circle was idle.
+        if (!this._textPts || this._textPtsLang !== getLang()) {
+          this._textPts     = sampleText(t(this._textKey), this._n);
+          this._textPtsLang = getLang();
+        }
         this._state = STATE.ACTIVATING; this._stateTime = 0;
         this._assignTextTargets();
       }
