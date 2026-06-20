@@ -244,23 +244,36 @@ class SongCircle {
     this._textPts     = null;
     this._textPtsLang = null;
 
-    // Heavy canvas sample — split out so we can call it eagerly (initial warm-up
-    // + live morph) or skip it entirely (lang change while idle, see below).
+    // Heavy canvas sample — split out so the lang-change handler can either call
+    // it eagerly (live morph in place) or skip it (idle circle → defer to a
+    // staggered background rAF chain that warms the cache without blocking the
+    // click event).
     const _doSample = () => {
       const lang = getLang();
       const title = lang === "en" ? this._songTitleEn : this._songTitle;
       this._textPts     = sampleTextPoints(title, this._n);
       this._textPtsLang = lang;
     };
-    // Pre-sample text staggered by circle index so each one lands in a different
-    // frame and the getImageData readbacks don't all spike on the same frame.
-    let _delay = index;
-    const _staggeredSample = () => {
-      if (this._disposed) return;
-      if (_delay-- > 0) { requestAnimationFrame(_staggeredSample); return; }
-      _doSample();
+
+    // Background warm — stagger by circle index so 6 circles don't pile their
+    // ~30 ms getImageData calls into one frame. The rAF guard prevents stacking
+    // if lang toggles rapidly. Used for both initial pre-warm and post-lang-change
+    // re-warm: the next boat entry into ANY circle then hits a cached sample.
+    this._bgSampleRaf = null;
+    const _scheduleBgSample = () => {
+      if (this._bgSampleRaf || this._disposed) return;
+      let frames = index;
+      const tick = () => {
+        if (this._disposed) { this._bgSampleRaf = null; return; }
+        if (frames-- > 0) { this._bgSampleRaf = requestAnimationFrame(tick); return; }
+        this._bgSampleRaf = null;
+        // If activate() (or another lang change) already sampled, skip redundant work.
+        if (this._textPtsLang === getLang()) return;
+        _doSample();
+      };
+      this._bgSampleRaf = requestAnimationFrame(tick);
     };
-    requestAnimationFrame(_staggeredSample);
+    _scheduleBgSample();
 
     // Re-sample on language switch. Hold the unsubscribe handle so dispose() can
     // detach it; otherwise return-to-select cycles accumulate dead listeners.
@@ -268,8 +281,9 @@ class SongCircle {
     // INP optimisation: with 6 SongCircles + 2 UtilityCircles all listening to the
     // same setLang() click, doing eager sampleTextPoints on every listener pushed
     // INP past 200 ms on slower machines. Instead — only sample now if the circle
-    // is currently showing text (so the morph stays live); otherwise just invalidate
-    // the cached sample and let activate() lazy-sample when the boat enters.
+    // is currently showing text (so the morph stays live); otherwise schedule a
+    // staggered background warm so the next boat entry hits a cached sample
+    // rather than jank-sampling synchronously on activate().
     this._offLang = onLangChange(() => {
       if (this._textPtsLang === getLang()) return;
       if (this._state === STATE.ACTIVATING || this._state === STATE.ACTIVE) {
@@ -282,6 +296,7 @@ class SongCircle {
       } else {
         this._textPts     = null;
         this._textPtsLang = null;
+        _scheduleBgSample();
       }
     });
   }
@@ -776,6 +791,7 @@ class SongCircle {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    if (this._bgSampleRaf) { cancelAnimationFrame(this._bgSampleRaf); this._bgSampleRaf = null; }
     this._offLang?.();
     this._offLang = null;
     const sc = this.engine.scene;

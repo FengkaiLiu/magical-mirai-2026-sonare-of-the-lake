@@ -263,15 +263,28 @@ export class UtilityCircle {
     // ── Glow ring ─────────────────────────────────────────────────────────────
     this._ring = this._makeRing(col);
 
-    // ── Text points — pre-sampled one frame after construction; re-sampled lazily on lang change ──
-    this._textKey     = textKey;
+    // ── Text points — initial pre-warm + lazy re-sample on lang change ───────
     this._textPts     = null;
     this._textPtsLang = null;
     const _doSample = () => {
       this._textPts     = sampleText(t(textKey), n);
       this._textPtsLang = getLang();
     };
-    requestAnimationFrame(() => { if (!this._disposed) _doSample(); });
+    // Background warm — same pattern as SongCircle. The rAF guard prevents
+    // stacking if lang toggles in rapid succession. The next boat entry then
+    // hits the cached sample rather than triggering a synchronous getImageData
+    // during activate().
+    this._bgSampleRaf = null;
+    const _scheduleBgSample = () => {
+      if (this._bgSampleRaf || this._disposed) return;
+      this._bgSampleRaf = requestAnimationFrame(() => {
+        this._bgSampleRaf = null;
+        if (this._disposed) return;
+        if (this._textPtsLang === getLang()) return;
+        _doSample();
+      });
+    };
+    _scheduleBgSample();
 
     // ── Screen-space hint ─────────────────────────────────────────────────────
     this._hintEl = document.createElement("div");
@@ -281,8 +294,8 @@ export class UtilityCircle {
     document.body.appendChild(this._hintEl);
     this._hintWorldPos = new THREE.Vector3();
     // INP optimisation: see SongCircle's onLangChange handler — same reasoning.
-    // Sample now only if the text is currently visible (live morph); otherwise
-    // just invalidate and let _update's proximity check lazy-sample on entry.
+    // Sample eagerly only if text is currently visible (live morph); otherwise
+    // schedule a background warm so the next entry hits cache.
     this._offLang = onLangChange(() => {
       if (this._hintEl) this._hintEl.innerHTML = t("enterStart");
       if (this._textPtsLang === getLang()) return;
@@ -296,6 +309,7 @@ export class UtilityCircle {
       } else {
         this._textPts     = null;
         this._textPtsLang = null;
+        _scheduleBgSample();
       }
     });
 
@@ -624,6 +638,7 @@ export class UtilityCircle {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    if (this._bgSampleRaf) { cancelAnimationFrame(this._bgSampleRaf); this._bgSampleRaf = null; }
     this._offLang?.();
     window.removeEventListener("keydown", this._onKeyDown);
     this._hintEl?.remove();
