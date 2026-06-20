@@ -177,10 +177,12 @@ function applyTranslations() {
   if (hudSettingBtn)   hudSettingBtn.title         = t("settingTitle");
 
   // Static game UI (in-scene elements)
-  const selectHint  = document.getElementById("select-hint");
-  const overlayP    = document.querySelector("#overlay p");
-  if (selectHint) selectHint.textContent = t("selectHint");
-  if (overlayP)   overlayP.textContent   = t("overlayText");
+  const selectHint   = document.getElementById("select-hint");
+  const overlayText  = document.getElementById("overlay-text");
+  const overlayStuck = document.getElementById("overlay-stuck-hint");
+  if (selectHint)   selectHint.textContent   = t("selectHint");
+  if (overlayText)  overlayText.textContent  = t("overlayText");
+  if (overlayStuck) overlayStuck.textContent = t("overlayStuck");
 
   // Browser tab title follows the active language so the OS taskbar / window
   // chrome doesn't stay frozen in English for a JA-first user.

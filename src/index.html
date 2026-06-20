@@ -71,9 +71,13 @@
   <!-- Song select hint (text filled in by applyTranslations) -->
   <div id="select-hint"></div>
 
-  <!-- Play scene loading overlay (text filled in by applyTranslations) -->
+  <!-- Play scene loading overlay (text filled in by applyTranslations).
+       The second <p> is a safety hint that fades in if the overlay stays
+       visible for >10 s — gives reviewers a clear escape hatch on the rare
+       chance TextAlive/piapro stalls past the watchdog. -->
   <div id="overlay">
-    <p></p>
+    <p id="overlay-text"></p>
+    <p id="overlay-stuck-hint"></p>
   </div>
 
   <!-- Song progress bar — top of screen during play -->

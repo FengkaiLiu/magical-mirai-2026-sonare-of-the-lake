@@ -423,9 +423,7 @@ export class GameScene {
     const song = SONGS[songIndex];
     const pre  = this._ensurePreloadedPlayer(songIndex, song);
 
-    if (!pre.timerReady) {
-      document.getElementById("overlay")?.classList.remove("hidden");
-    }
+    if (!pre.timerReady) this._setOverlayState(true);
 
     // Update shared systems in place — no reconstruction.
     this.water.setColors(song.theme.water, song.theme.deep);
@@ -624,7 +622,7 @@ export class GameScene {
         // Audio actually started — unlock lyric dispatch and clear the fallback timer.
         this._playbackStarted = true;
         if (this._playTimeout) { clearTimeout(this._playTimeout); this._playTimeout = null; }
-        document.getElementById("overlay")?.classList.add("hidden");
+        this._setOverlayState(false);
         const pauseBtn = document.getElementById("pause-btn");
         if (pauseBtn) pauseBtn.textContent = "⏸";
         if (this.audioContext?.state === "suspended") this.audioContext.resume();
@@ -714,8 +712,31 @@ export class GameScene {
       if (!this._managed) {
         try { this.player?.requestPlay(); } catch {}
       }
-      document.getElementById("overlay")?.classList.add("hidden");
+      this._setOverlayState(false);
     }, 8000);
+  }
+
+  /**
+   * Show or hide the play-scene loading overlay AND manage the stuck-hint
+   * timer. When the overlay stays visible for ≥10 s (well past the typical
+   * preload tail of ~2-3 s), the hint fades in to tell the reviewer that
+   * refreshing the page is the recovery action. Idempotent.
+   */
+  _setOverlayState(visible) {
+    const overlay = document.getElementById("overlay");
+    if (!overlay) return;
+    if (visible) {
+      overlay.classList.remove("hidden", "show-stuck-hint");
+      if (this._stuckHintTimer) clearTimeout(this._stuckHintTimer);
+      this._stuckHintTimer = setTimeout(() => {
+        overlay.classList.add("show-stuck-hint");
+        this._stuckHintTimer = null;
+      }, 10000);
+    } else {
+      overlay.classList.add("hidden");
+      overlay.classList.remove("show-stuck-hint");
+      if (this._stuckHintTimer) { clearTimeout(this._stuckHintTimer); this._stuckHintTimer = null; }
+    }
   }
 
   /**
@@ -962,6 +983,7 @@ export class GameScene {
     this._lyricGate?.dispose();
     this._lyricGate = null;
 
+    if (this._stuckHintTimer) { clearTimeout(this._stuckHintTimer); this._stuckHintTimer = null; }
     // Dispose all preloaded players (including whichever one is currently in use).
     for (const pre of this._preloadedSongs ?? []) pre.player?.dispose();
     this._preloadedSongs = [];
