@@ -7,6 +7,15 @@
 > coalesce in the sky during choruses. Built for the Hatsune Miku "Magical Mirai
 > 2026" Programming Contest.
 
+## Live Demo
+
+**Hosted build (desktop only — keyboard required):**
+<https://magical-mirai-2026-sonare-of-the-la.vercel.app/>
+
+Submitted as reference per the contest rules ("contestants are welcome to submit
+a URL of their own hosted websites"). The build served at this URL is produced
+from the same source in this repository via `npm run build`.
+
 ## Authors - Team FBH
 
 ### Overall Contributor
