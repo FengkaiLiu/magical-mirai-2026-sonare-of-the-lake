@@ -90,14 +90,18 @@ export const glowFrag = /* glsl */ `
 const _textCache = new Map();
 
 // Pre-load custom fonts so they are available for canvas text sampling.
-// document.fonts.load() is async but completes well before the first phrase
-// is sampled (intro takes ~3 s; deferred phrases wait 2+ frames).
-document.fonts.load('400 60px "Caveat"');
-document.fonts.load('bold 60px "Caveat"');
-document.fonts.load('400 60px "KiwiMaru"');
-document.fonts.load('bold 60px "KiwiMaru"');
+// Cache writes are gated on _fontsReady so a sample taken before the @font-face
+// files have downloaded doesn't bake the system fallback glyphs into the cache
+// for the rest of the session.
+let _fontsReady = false;
+Promise.all([
+  document.fonts.load('400 60px "Caveat"'),
+  document.fonts.load('bold 60px "Caveat"'),
+  document.fonts.load('400 60px "KiwiMaru"'),
+  document.fonts.load('bold 60px "KiwiMaru"'),
+]).then(() => { _fontsReady = true; }).catch(() => { _fontsReady = true; });
 
-const _DEFAULT_FONT_FAMILY = '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif';
+const _DEFAULT_FONT_FAMILY = '"KiwiMaru",sans-serif';
 const _DEFAULT_FONT_WEIGHT = "bold";
 
 export function sampleTextPoints(
@@ -176,8 +180,10 @@ export function sampleTextPoints(
 
   // FIFO cap — across all 6 songs we see ~360 unique phrase texts at worst.
   // Keep the cache bounded so the heap doesn't grow indefinitely on long sessions.
-  if (_textCache.size >= 200) _textCache.delete(_textCache.keys().next().value);
-  _textCache.set(cacheKey, result);
+  if (_fontsReady) {
+    if (_textCache.size >= 200) _textCache.delete(_textCache.keys().next().value);
+    _textCache.set(cacheKey, result);
+  }
   return result;
 }
 

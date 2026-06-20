@@ -366,11 +366,11 @@ export class Boat {
   /** Swap to a different boat definition at runtime (e.g. from the boat-select modal). */
   swapModel(boat) {
     if (this._model) {
+      // Do NOT dispose the model's geometries/materials: GLTF clone(true)
+      // shares them with the cached gltf.scene (asset-cache holds the parsed
+      // GLTF indefinitely). Disposing would blank every future clone of this
+      // boat — swap to another boat and back, and the model renders untextured.
       this.mesh.remove(this._model);
-      this._model.traverse(child => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) child.material.dispose();
-      });
       this._model = null;
     }
     preloadGLTF(boat.glb)

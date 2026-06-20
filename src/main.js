@@ -3,7 +3,7 @@
  *
  * The loading bar aggregates five real preload stages, weighted roughly by
  * the work each one represents.  Start enables only when every stage hits
- * 1.0 — never on a cosmetic timer.  A 60 s watchdog force-enables Start if
+ * 1.0 — never on a cosmetic timer.  A 20 s watchdog force-enables Start if
  * something hangs (e.g. TextAlive API blocked, GLB fetch failed) so the
  * user is never permanently stuck on the intro screen.
  */
@@ -181,6 +181,10 @@ function applyTranslations() {
   const overlayP    = document.querySelector("#overlay p");
   if (selectHint) selectHint.textContent = t("selectHint");
   if (overlayP)   overlayP.textContent   = t("overlayText");
+
+  // Browser tab title follows the active language so the OS taskbar / window
+  // chrome doesn't stay frozen in English for a JA-first user.
+  document.title = t("subTitle");
 
   // Language toggle button active state (both intro modal + HUD popover)
   document.getElementById("lang-ja-btn")?.classList.toggle("active", lang === "ja");

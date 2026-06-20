@@ -4,6 +4,11 @@
  * Preferences are persisted to localStorage under "sotl_lang" and "sotl_boat".
  * Consumers call t(key) for translated strings and onLangChange(fn) to react
  * to language switches.
+ *
+ * NOTE: The `enterStart` and `enterReturn` values embed raw <kbd> HTML and
+ * must be set via `element.innerHTML = t(...)`. Using `textContent` would
+ * render the markup literally. Every other key is plain text and safe for
+ * `textContent`.
  */
 
 export const BOATS = [

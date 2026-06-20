@@ -36,7 +36,7 @@ body {
   overflow: hidden;
   /* Caveat covers Latin/ASCII; KiwiMaru handles Japanese glyphs as fallback.
      All UI elements inherit this stack automatically — no per-element overrides needed. */
-  font-family: 'Caveat', 'KiwiMaru', 'M PLUS Rounded 1c', 'Yu Gothic', 'Hiragino Sans', sans-serif;
+  font-family: 'Caveat', 'KiwiMaru', sans-serif;
 }
 
 #app canvas {

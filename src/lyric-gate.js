@@ -11,7 +11,7 @@ const RISE_DURATION        = 3.5;  // seconds for particles to reach full height
 const TEXT_PARTICLE_COUNT  = 1200;
 const FRAME_PTS_PER_EDGE   = 70;   // 4 × 70 = 280 border particles
 const FWD_TOLERANCE        = 1.8;  // metres either side of gate plane to trigger
-const FONT_FAMILY = '"KiwiMaru","M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif';
+const FONT_FAMILY = '"KiwiMaru",sans-serif';
 
 export class LyricGate {
   /**

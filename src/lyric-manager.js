@@ -27,9 +27,15 @@ import { waveHeight } from "./boat.js";
 import _FONT_KIWIMARU from "../fonts/KiwiMaru-Regular.ttf?url";
 import _FONT_CAVEAT   from "../fonts/Caveat-Regular.ttf?url";
 
-// Preload CSS fonts so canvas 2D ctx.font uses Caveat/KiwiMaru for particle sampling
-document.fonts.load('bold 70px "Caveat"');
-document.fonts.load('400 70px "KiwiMaru"');
+// Preload CSS fonts so canvas 2D ctx.font uses Caveat/KiwiMaru for particle sampling.
+// Cache writes in _sampleSkyPoints are gated on _fontsReady so a sample taken
+// before the @font-face files have downloaded doesn't bake the system fallback
+// into the cache for the rest of the session.
+let _fontsReady = false;
+Promise.all([
+  document.fonts.load('bold 70px "Caveat"'),
+  document.fonts.load('400 70px "KiwiMaru"'),
+]).then(() => { _fontsReady = true; }).catch(() => { _fontsReady = true; });
 
 /**
  * Choose font by content: KiwiMaru for Japanese/CJK glyphs, Caveat for Latin.
@@ -72,7 +78,7 @@ function _sampleSkyPoints(text) {
   const isJP  = /[　-鿿豈-﫿]/.test(text);
   const fName = isJP ? '"KiwiMaru"' : '"Caveat"';
   let fontSize = 70;
-  const font = s => `bold ${s}px ${fName},"M PLUS Rounded 1c","Yu Gothic","Hiragino Sans",sans-serif`;
+  const font = s => `bold ${s}px ${fName},sans-serif`;
   ctx.font = font(fontSize);
   while (ctx.measureText(text).width > 980 && fontSize > 20) {
     fontSize -= 5;
@@ -93,8 +99,10 @@ function _sampleSkyPoints(text) {
     }
   }
 
-  if (_skyPointsCache.size >= 20) _skyPointsCache.delete(_skyPointsCache.keys().next().value);
-  _skyPointsCache.set(text, pts);
+  if (_fontsReady) {
+    if (_skyPointsCache.size >= 20) _skyPointsCache.delete(_skyPointsCache.keys().next().value);
+    _skyPointsCache.set(text, pts);
+  }
   return pts;
 }
 

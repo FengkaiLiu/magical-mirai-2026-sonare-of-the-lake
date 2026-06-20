@@ -56,8 +56,7 @@ The six designated songs from the Magical Mirai 2026 Song Contest are all select
 | [Troika Three Text](https://github.com/protectwise/troika) | Crisp SDF text rendering |
 | [GSAP](https://gsap.com/) | UI / camera tweens |
 | [Vite](https://vitejs.dev/) | Build & dev server |
-| [Draco](https://github.com/google/draco) (bundled decoder) | 3D mesh decompression (terrain.glb) |
-| [ClaudeCode](https://claude.com/product/claude-code) | Vibe-Coding |
+| [Draco](https://github.com/google/draco) | 3D mesh decompression for `terrain.glb` (WASM decoder bundled in `public/draco/`, no CDN) |
 
 ## Project Structure
 
