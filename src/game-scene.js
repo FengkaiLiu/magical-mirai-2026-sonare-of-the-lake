@@ -475,12 +475,22 @@ export class GameScene {
     if (pre.player && !pre.timerReady) {
       console.warn("[GameScene] Preload not timer-ready at click — restarting player for:", song.title);
       try { pre.player.dispose(); } catch {}
-      pre.player        = null;
-      pre.audioEl       = null;
-      pre.timerReady    = false;
-      pre.video         = null;
-      pre.managed       = false;
-      pre._timerCounted = false;
+      // Audio cache fields must be cleared in lockstep with audioEl — the cached
+      // MediaElementSource is bound to the discarded element, and leaving it in
+      // place would make _setupAudioPipeline take the cache-hit branch and wire
+      // the analyser to the dead audioEl.
+      try { pre.audioContext?.close(); } catch {}
+      pre.audioContext     = null;
+      pre.analyser         = null;
+      pre.audioData        = null;
+      pre.mediaSource      = null;
+      pre.player           = null;
+      pre.audioEl          = null;
+      pre.timerReady       = false;
+      pre.video            = null;
+      pre.managed          = false;
+      pre._timerCounted    = false;
+      pre.playbackListener = null;
       // _prewarmCounted intentionally left as-is — see _rebuildAndRetryPlayback.
       this._startPreload(song, pre);
     }

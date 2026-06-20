@@ -277,12 +277,15 @@ onLangChange(() => applyTranslations());
 applyTranslations();
 
 // ── Return-to-menu transition ─────────────────────────────────────────────────
-// Called by GameScene when the player confirms the MenuReturnCircle.
-// Sequence:
+// Reserved for a future MenuReturnCircle path: the current submission only
+// returns to song-select (never to the title overhead). The function is left
+// wired via scene.onReturnToMenu so that bringing MenuReturnCircle back online
+// later is a one-line change in GameScene. Until then, nothing invokes it.
+//
+// Sequence (if/when invoked):
 //   1. Blue circle-reveal overlay snaps to fully opaque (covers 3D scene)
-//   2. Camera has already teleported to overhead in GameScene._beginReturnToMenu
-//   3. After one frame: restore intro-screen elements, start fading overlay out
-//   4. Overlay fades out (1.5 s) revealing the overhead lake view + title UI
+//   2. After one frame: restore intro-screen elements, start fading overlay out
+//   3. Overlay fades out (1.5 s) revealing the overhead lake view + title UI
 function showIntroScreen() {
   const overlay = document.getElementById("circle-reveal");
   if (overlay) {

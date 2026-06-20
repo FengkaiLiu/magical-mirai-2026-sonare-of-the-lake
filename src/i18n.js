@@ -53,7 +53,7 @@ const STRINGS = {
     subTitle:       "Sonare of the Lake",
     startBtn:       "Start",
     boatBtn:        "Boat",
-    settingBtn:     "Setting",
+    settingBtn:     "Settings",
     boatModalTitle: "Select Boat",
     settingTitle:   "Settings",
     langLabel:      "Language",

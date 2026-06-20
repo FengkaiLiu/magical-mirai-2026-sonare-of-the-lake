@@ -173,7 +173,7 @@ None are AI-generated.
   used only for code-writing assistance (which the rules permit).
 - **No obfuscation.** All source is plain ES modules, written for readability
   with comments documenting non-obvious decisions.
-- **TextAlive token.** The token `xTTinPuYYoHYLhnk` in `src/game-scene.js:168`
+- **TextAlive token.** The token `xTTinPuYYoHYLhnk` in `src/game-scene.js:170`
   is a **public client-side application token** issued for this app per the
   [TextAlive App API documentation](https://developer.textalive.jp/). It
   identifies the app to the API and carries no privileged scope, so committing
