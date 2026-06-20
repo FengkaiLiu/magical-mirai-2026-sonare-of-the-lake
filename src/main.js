@@ -184,7 +184,7 @@ function applyTranslations() {
 
   // Browser tab title follows the active language so the OS taskbar / window
   // chrome doesn't stay frozen in English for a JA-first user.
-  document.title = t("subTitle");
+  document.title = t("logoTitle");
 
   // Language toggle button active state (both intro modal + HUD popover)
   document.getElementById("lang-ja-btn")?.classList.toggle("active", lang === "ja");
